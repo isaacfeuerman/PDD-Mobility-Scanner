@@ -226,7 +226,7 @@ void flushSamplesToSD() {
 
   // Write rows in small batches to avoid one giant string
   char row[230];
-  char ts[24];
+  char ts[32];
   for (int i = 0; i < sampleCount; i++) {
     Sample &s = sampleBuf[i];
 
