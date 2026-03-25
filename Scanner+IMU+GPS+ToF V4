@@ -2,6 +2,7 @@
 #include "VideoStream.h"
 #include "AmebaFatFS.h"
 #include <Wire.h>
+#include <VL53L1X.h>
 
 // GPS
 TinyGPSPlus gps;
@@ -14,6 +15,10 @@ uint32_t img_len = 0;
 
 // SD card
 AmebaFatFS fs;
+
+// ToF sensor
+VL53L1X tof;
+bool tofReady = false;
 
 // BNO055 registers
 const uint8_t BNO055_ADDR        = 0x28;
@@ -41,6 +46,10 @@ struct Sample {
   float qw, qx, qy, qz;
   float mx, my, mz;
   uint8_t calSys, calGyro, calAccel, calMag;
+  // ToF
+  bool hasToF;
+  uint16_t tof_mm;
+  uint8_t tof_status;
   // GPS (only valid when hasGPS is true)
   bool hasGPS;
   double lat, lng, alt, speed, hdg, hdop;
@@ -225,10 +234,18 @@ void flushSamplesToSD() {
   f.seek(f.size());
 
   // Write rows in small batches to avoid one giant string
-  char row[230];
+  char row[256];
   char ts[32];
   for (int i = 0; i < sampleCount; i++) {
     Sample &s = sampleBuf[i];
+
+    // Format ToF columns
+    char tofStr[16];
+    if (s.hasToF) {
+      sprintf(tofStr, "%u,%u", s.tof_mm, s.tof_status);
+    } else {
+      strcpy(tofStr, ",");
+    }
 
     if (s.hasGPS) {
       sprintf(ts, "%04d-%02d-%02dT%02d:%02d:%02d.%02d",
@@ -241,6 +258,7 @@ void flushSamplesToSD() {
         "%.4f,%.4f,%.4f,"
         "%.4f,%.4f,%.4f,%.4f,"
         "%.1f,%.1f,%.1f,"
+        "%s,"
         "%.6f,%.6f,%.1f,%.1f,%.1f,%d,%.1f,"
         "%d,%d,%d,%d",
         s.ms, ts, waypoint,
@@ -249,6 +267,7 @@ void flushSamplesToSD() {
         s.gx, s.gy, s.gz,
         s.qw, s.qx, s.qy, s.qz,
         s.mx, s.my, s.mz,
+        tofStr,
         s.lat, s.lng, s.alt, s.speed, s.hdg, s.sats, s.hdop,
         s.calSys, s.calGyro, s.calAccel, s.calMag);
     } else {
@@ -259,6 +278,7 @@ void flushSamplesToSD() {
         "%.4f,%.4f,%.4f,"
         "%.4f,%.4f,%.4f,%.4f,"
         "%.1f,%.1f,%.1f,"
+        "%s,"
         ",,,,,,,"
         "%d,%d,%d,%d",
         s.ms, waypoint,
@@ -267,6 +287,7 @@ void flushSamplesToSD() {
         s.gx, s.gy, s.gz,
         s.qw, s.qx, s.qy, s.qz,
         s.mx, s.my, s.mz,
+        tofStr,
         s.calSys, s.calGyro, s.calAccel, s.calMag);
     }
 
@@ -287,7 +308,7 @@ void setup() {
   Serial.begin(115200);
   delay(3000);
   Serial1.begin(9600);
-  Serial.println("Trail Scanner v3 — 25Hz single CSV, RAM buffered");
+  Serial.println("Trail Scanner v4 — 25Hz single CSV, RAM buffered, ToF");
 
   // Init camera
   Camera.configVideoChannel(CHANNEL, config);
@@ -295,9 +316,11 @@ void setup() {
   Camera.channelBegin(CHANNEL);
   Serial.println("Camera ready.");
 
-  // Init IMU
+  // Init I2C (shared by BNO055 and VL53L1X)
   Wire.begin();
   delay(100);
+
+  // Init IMU
   if (bno055_init()) {
     imuReady = true;
     Serial.println("BNO055 ready.");
@@ -305,6 +328,18 @@ void setup() {
     delay(3000);
   } else {
     Serial.println("WARNING: BNO055 not detected — continuing without IMU.");
+  }
+
+  // Init ToF sensor (VL53L1X at default address 0x29)
+  tof.setTimeout(500);
+  if (tof.init()) {
+    tof.setDistanceMode(VL53L1X::Long);
+    tof.setMeasurementTimingBudget(33000);  // 33ms — fits within 40ms sample interval
+    tof.startContinuous(40);                // match sample rate
+    tofReady = true;
+    Serial.println("VL53L1X ready.");
+  } else {
+    Serial.println("WARNING: VL53L1X not detected — continuing without ToF.");
   }
 
   // Init SD card
@@ -328,6 +363,7 @@ void setup() {
       "gx,gy,gz,"
       "qw,qx,qy,qz,"
       "mx,my,mz,"
+      "tof_mm,tof_status,"
       "lat,lng,alt,speed,hdg,sats,hdop,"
       "cal_sys,cal_gyro,cal_accel,cal_mag"
     );
@@ -374,7 +410,7 @@ void loop() {
     }
   }
 
-  // --- 50Hz sensor sample into RAM buffer ---
+  // --- 25Hz sensor sample into RAM buffer ---
   if (imuReady && (now - lastSample >= sampleInterval)) {
     lastSample = now;
 
@@ -383,6 +419,15 @@ void loop() {
       s.ms = now;
 
       if (readSensors(s)) {
+        // Read ToF if available (non-blocking check)
+        if (tofReady && tof.dataReady()) {
+          s.tof_mm = tof.read(false);
+          s.tof_status = tof.ranging_data.range_status;
+          s.hasToF = true;
+        } else {
+          s.hasToF = false;
+        }
+
         // Attach GPS if we have a fresh fix
         if (newGPSFix) {
           s.hasGPS = true;
@@ -453,6 +498,10 @@ void loop() {
     Serial.print("  Lng: "); Serial.println(gpsLng, 6);
     Serial.print("Sats: "); Serial.print(gpsSats);
     Serial.print("  HDOP: "); Serial.println(gpsHdop, 1);
+    if (tofReady) {
+      Serial.print("ToF: "); Serial.print(tof.ranging_data.range_mm);
+      Serial.println("mm");
+    }
     if (img_len > 0) {
       Serial.print("Image: img_"); Serial.print(waypoint);
       Serial.print(" ("); Serial.print(img_len);
