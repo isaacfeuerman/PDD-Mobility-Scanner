@@ -45,6 +45,9 @@ struct Sample {
   bool hasGPS;
   double lat, lng, alt, speed, hdg, hdop;
   int sats;
+  // UTC timestamp from GPS (valid when hasGPS is true)
+  uint16_t year;
+  uint8_t month, day, hour, minute, second, centisecond;
 };
 
 // RAM buffer: 25Hz × 5s = 125 samples, with headroom
@@ -67,6 +70,8 @@ bool newGPSFix = false;
 double gpsLat = 0, gpsLng = 0, gpsAlt = 0;
 double gpsSpeed = 0, gpsHdg = 0, gpsHdop = 0;
 int gpsSats = 0;
+uint16_t gpsYear = 0;
+uint8_t gpsMonth = 0, gpsDay = 0, gpsHour = 0, gpsMinute = 0, gpsSecond = 0, gpsCentisecond = 0;
 
 
 // --- BNO055 helper functions ---
@@ -220,13 +225,17 @@ void flushSamplesToSD() {
   f.seek(f.size());
 
   // Write rows in small batches to avoid one giant string
-  char row[200];
+  char row[230];
+  char ts[24];
   for (int i = 0; i < sampleCount; i++) {
     Sample &s = sampleBuf[i];
 
     if (s.hasGPS) {
+      sprintf(ts, "%04d-%02d-%02dT%02d:%02d:%02d.%02d",
+        s.year, s.month, s.day,
+        s.hour, s.minute, s.second, s.centisecond);
       sprintf(row,
-        "%lu,%d,"
+        "%lu,%s,%d,"
         "%.2f,%.2f,%.2f,"
         "%.2f,%.2f,%.2f,"
         "%.4f,%.4f,%.4f,"
@@ -234,7 +243,7 @@ void flushSamplesToSD() {
         "%.1f,%.1f,%.1f,"
         "%.6f,%.6f,%.1f,%.1f,%.1f,%d,%.1f,"
         "%d,%d,%d,%d",
-        s.ms, waypoint,
+        s.ms, ts, waypoint,
         s.ax, s.ay, s.az,
         s.gvx, s.gvy, s.gvz,
         s.gx, s.gy, s.gz,
@@ -244,7 +253,7 @@ void flushSamplesToSD() {
         s.calSys, s.calGyro, s.calAccel, s.calMag);
     } else {
       sprintf(row,
-        "%lu,%d,"
+        "%lu,,%d,"
         "%.2f,%.2f,%.2f,"
         "%.2f,%.2f,%.2f,"
         "%.4f,%.4f,%.4f,"
@@ -313,7 +322,7 @@ void setup() {
   File f = fs.open(String("trail_data.csv"));
   if (f) {
     f.println(
-      "ms,wp,"
+      "ms,utc,wp,"
       "ax,ay,az,"
       "gvx,gvy,gvz,"
       "gx,gy,gz,"
@@ -352,6 +361,15 @@ void loop() {
         gpsHdg = gps.course.deg();
         gpsSats = gps.satellites.value();
         gpsHdop = gps.hdop.hdop();
+        if (gps.date.isValid() && gps.time.isValid()) {
+          gpsYear = gps.date.year();
+          gpsMonth = gps.date.month();
+          gpsDay = gps.date.day();
+          gpsHour = gps.time.hour();
+          gpsMinute = gps.time.minute();
+          gpsSecond = gps.time.second();
+          gpsCentisecond = gps.time.centisecond();
+        }
       }
     }
   }
@@ -375,6 +393,13 @@ void loop() {
           s.hdg = gpsHdg;
           s.sats = gpsSats;
           s.hdop = gpsHdop;
+          s.year = gpsYear;
+          s.month = gpsMonth;
+          s.day = gpsDay;
+          s.hour = gpsHour;
+          s.minute = gpsMinute;
+          s.second = gpsSecond;
+          s.centisecond = gpsCentisecond;
           newGPSFix = false;
         } else {
           s.hasGPS = false;
