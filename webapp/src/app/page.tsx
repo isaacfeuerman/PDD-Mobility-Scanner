@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import FileUpload from "@/components/FileUpload";
 import MapView from "@/components/MapView";
 import SensorCharts from "@/components/SensorCharts";
@@ -14,8 +14,21 @@ const GOOGLE_MAPS_API_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || "";
 export default function Home() {
   const [session, setSession] = useState<SessionData | null>(null);
   const [selectedWaypoint, setSelectedWaypoint] = useState<number | null>(null);
-  const [apiKey, setApiKey] = useState(GOOGLE_MAPS_API_KEY);
+  const [apiKey, setApiKey] = useState(() => {
+    if (GOOGLE_MAPS_API_KEY) return GOOGLE_MAPS_API_KEY;
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("pdd_google_maps_key") || "";
+    }
+    return "";
+  });
   const [tempApiKey, setTempApiKey] = useState("");
+
+  // Persist API key to localStorage
+  useEffect(() => {
+    if (apiKey && !GOOGLE_MAPS_API_KEY) {
+      localStorage.setItem("pdd_google_maps_key", apiKey);
+    }
+  }, [apiKey]);
 
   const handleFileLoaded = useCallback((filename: string, content: string) => {
     const data = parseCSV(filename, content);
