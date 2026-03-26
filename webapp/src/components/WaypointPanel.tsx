@@ -6,6 +6,7 @@ interface WaypointPanelProps {
   waypoints: Waypoint[];
   selectedWaypoint: number | null;
   onWaypointSelect: (index: number) => void;
+  totalCount?: number;
 }
 
 export default function WaypointPanel({
@@ -38,7 +39,7 @@ export default function WaypointPanel({
             <div className="flex items-center justify-between">
               <span className="font-mono font-medium">WP {wp.index}</span>
               <span className="text-xs text-gray-500">
-                {wp.speed.toFixed(1)} m/s
+                {wp.speed.toFixed(1)} km/h
               </span>
             </div>
             <div className="text-xs text-gray-500 mt-0.5">

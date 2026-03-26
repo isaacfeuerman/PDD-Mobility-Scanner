@@ -54,7 +54,44 @@ export interface Waypoint {
   alt: number;
   speed: number;
   sats: number;
+  hdop: number;
   timestamp: string;
+  elapsedMs: number;
   sampleStart: number;
   sampleEnd: number;
 }
+
+export interface FilterSettings {
+  minSats: number;
+  maxHDOP: number;
+  maxJumpMeters: number;
+  dwellRadiusMeters: number;
+  dwellTimeSeconds: number;
+  showDwellMarkers: boolean;
+}
+
+export interface DwellMarker {
+  lat: number;
+  lng: number;
+  durationSeconds: number;
+  waypointCount: number;
+}
+
+export interface FilterResult {
+  waypoints: Waypoint[];
+  dwellMarkers: DwellMarker[];
+  removedCount: {
+    quality: number;
+    jump: number;
+    dwell: number;
+  };
+}
+
+export const DEFAULT_FILTER_SETTINGS: FilterSettings = {
+  minSats: 4,
+  maxHDOP: 5,
+  maxJumpMeters: 50,
+  dwellRadiusMeters: 5,
+  dwellTimeSeconds: 30,
+  showDwellMarkers: true,
+};

@@ -25,8 +25,8 @@ export default function SessionStats({ session }: SessionStatsProps) {
     { label: "Waypoints", value: waypoints.length },
     { label: "Duration", value: `${durationMin.toFixed(1)} min` },
     { label: "Sample Rate", value: `${(samples.length / (durationMs / 1000) || 0).toFixed(0)} Hz` },
-    { label: "Avg Speed", value: `${avgSpeed.toFixed(2)} m/s` },
-    { label: "Max Speed", value: `${maxSpeed.toFixed(2)} m/s` },
+    { label: "Avg Speed", value: `${avgSpeed.toFixed(1)} km/h` },
+    { label: "Max Speed", value: `${maxSpeed.toFixed(1)} km/h` },
   ];
 
   return (

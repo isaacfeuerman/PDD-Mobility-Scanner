@@ -53,7 +53,9 @@ export function parseCSV(filename: string, csvText: string): SessionData {
         alt: s.alt,
         speed: s.speed,
         sats: s.sats,
+        hdop: s.hdop,
         timestamp: s.utc,
+        elapsedMs: s.ms,
         sampleStart: i,
         sampleEnd: i,
       });

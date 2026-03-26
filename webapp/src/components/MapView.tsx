@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useCallback, useState } from "react";
-import { Waypoint, ScannerSample } from "@/lib/types";
+import { Waypoint, ScannerSample, DwellMarker } from "@/lib/types";
 
 // Prevent multiple script loads across hot-reloads
 let scriptLoadPromise: Promise<void> | null = null;
@@ -38,6 +38,8 @@ interface MapViewProps {
   selectedWaypoint: number | null;
   onWaypointSelect: (index: number) => void;
   apiKey: string;
+  dwellMarkers?: DwellMarker[];
+  showDwellMarkers?: boolean;
 }
 
 export default function MapView({
@@ -46,6 +48,8 @@ export default function MapView({
   selectedWaypoint,
   onWaypointSelect,
   apiKey,
+  dwellMarkers = [],
+  showDwellMarkers = true,
 }: MapViewProps) {
   const mapRef = useRef<HTMLDivElement>(null);
   const googleMapRef = useRef<google.maps.Map | null>(null);
@@ -54,6 +58,7 @@ export default function MapView({
   const startMarkerRef = useRef<google.maps.marker.AdvancedMarkerElement | null>(null);
   const endMarkerRef = useRef<google.maps.marker.AdvancedMarkerElement | null>(null);
   const infoWindowRef = useRef<google.maps.InfoWindow | null>(null);
+  const dwellCirclesRef = useRef<google.maps.Circle[]>([]);
   const [loaded, setLoaded] = useState(false);
 
   // Load Google Maps script (only once, ever)
@@ -192,7 +197,7 @@ export default function MapView({
     infoWindowRef.current?.setContent(`
       <div style="color:#111;font-family:system-ui;font-size:13px;line-height:1.5;min-width:160px;">
         <div style="font-weight:700;font-size:14px;margin-bottom:4px;">Waypoint ${wp.index}</div>
-        <div>Speed: ${wp.speed.toFixed(2)} m/s</div>
+        <div>Speed: ${wp.speed.toFixed(1)} km/h</div>
         <div>Alt: ${wp.alt.toFixed(1)} m</div>
         <div>Sats: ${wp.sats}</div>
         <div style="color:#666;font-size:11px;margin-top:4px;">
@@ -206,6 +211,50 @@ export default function MapView({
     // Pan to selected waypoint
     map.panTo({ lat: wp.lat, lng: wp.lng });
   }, [selectedWaypoint, waypoints, loaded]);
+
+  // Render dwell markers
+  useEffect(() => {
+    const map = googleMapRef.current;
+    if (!map || !loaded) return;
+
+    // Clear old dwell circles
+    dwellCirclesRef.current.forEach((c) => c.setMap(null));
+    dwellCirclesRef.current = [];
+
+    if (!showDwellMarkers || dwellMarkers.length === 0) return;
+
+    const dwellInfoWindow = new google.maps.InfoWindow();
+
+    dwellMarkers.forEach((dm) => {
+      const circle = new google.maps.Circle({
+        map,
+        center: { lat: dm.lat, lng: dm.lng },
+        radius: 3,
+        fillColor: "#8b5cf6",
+        fillOpacity: 0.5,
+        strokeColor: "#8b5cf6",
+        strokeWeight: 2,
+        strokeOpacity: 0.8,
+        clickable: true,
+      });
+
+      circle.addListener("click", () => {
+        const mins = Math.floor(dm.durationSeconds / 60);
+        const secs = Math.round(dm.durationSeconds % 60);
+        dwellInfoWindow.setContent(`
+          <div style="color:#111;font-family:system-ui;font-size:13px;line-height:1.5;">
+            <div style="font-weight:700;font-size:14px;margin-bottom:4px;">Dwell Point</div>
+            <div>Duration: ${mins > 0 ? `${mins}m ` : ""}${secs}s</div>
+            <div>Points collapsed: ${dm.waypointCount}</div>
+          </div>
+        `);
+        dwellInfoWindow.setPosition({ lat: dm.lat, lng: dm.lng });
+        dwellInfoWindow.open(map);
+      });
+
+      dwellCirclesRef.current.push(circle);
+    });
+  }, [loaded, dwellMarkers, showDwellMarkers]);
 
   if (waypoints.length === 0) {
     return (

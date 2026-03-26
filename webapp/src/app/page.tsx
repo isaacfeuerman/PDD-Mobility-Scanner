@@ -1,19 +1,24 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useMemo } from "react";
 import FileUpload from "@/components/FileUpload";
 import MapView from "@/components/MapView";
 import SensorCharts from "@/components/SensorCharts";
 import WaypointPanel from "@/components/WaypointPanel";
 import SessionStats from "@/components/SessionStats";
+import FilterPanel from "@/components/FilterPanel";
+import ResizableSplit from "@/components/ResizableSplit";
 import { parseCSV } from "@/lib/parseCSV";
-import { SessionData } from "@/lib/types";
+import { applyAllFilters } from "@/lib/gpsFilters";
+import { SessionData, FilterSettings, DEFAULT_FILTER_SETTINGS } from "@/lib/types";
 
 const GOOGLE_MAPS_API_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || "";
 
 export default function Home() {
   const [session, setSession] = useState<SessionData | null>(null);
   const [selectedWaypoint, setSelectedWaypoint] = useState<number | null>(null);
+  const [filterSettings, setFilterSettings] = useState<FilterSettings>(DEFAULT_FILTER_SETTINGS);
+  const [statsOpen, setStatsOpen] = useState(true);
   const [apiKey, setApiKey] = useState(() => {
     if (GOOGLE_MAPS_API_KEY) return GOOGLE_MAPS_API_KEY;
     if (typeof window !== "undefined") {
@@ -29,6 +34,12 @@ export default function Home() {
       localStorage.setItem("pdd_google_maps_key", apiKey);
     }
   }, [apiKey]);
+
+  // Apply GPS filters
+  const filterResult = useMemo(() => {
+    if (!session) return null;
+    return applyAllFilters(session.waypoints, filterSettings);
+  }, [session, filterSettings]);
 
   const handleFileLoaded = useCallback((filename: string, content: string) => {
     const data = parseCSV(filename, content);
@@ -85,75 +96,102 @@ export default function Home() {
     );
   }
 
+  const filteredWaypoints = filterResult?.waypoints ?? session.waypoints;
+  const dwellMarkers = filterResult?.dwellMarkers ?? [];
+
   // Dashboard view
   return (
     <div className="h-screen flex flex-col">
       {/* Header */}
-      <header className="flex items-center justify-between px-4 py-3 bg-gray-900 border-b border-gray-800">
+      <header className="flex items-center justify-between px-4 py-2 bg-gray-900 border-b border-gray-800">
         <div className="flex items-center gap-4">
           <h1 className="text-lg font-bold">PDD Mobility Scanner</h1>
           <span className="text-sm text-gray-500">{session.filename}</span>
         </div>
-        <button
-          onClick={() => {
-            setSession(null);
-            setSelectedWaypoint(null);
-          }}
-          className="text-sm text-gray-400 hover:text-white transition-colors px-3 py-1
-                     bg-gray-800 rounded hover:bg-gray-700"
-        >
-          Load New File
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setStatsOpen(!statsOpen)}
+            className="text-sm text-gray-400 hover:text-white transition-colors px-2 py-1
+                       bg-gray-800 rounded hover:bg-gray-700"
+          >
+            {statsOpen ? "Hide Stats" : "Show Stats"}
+          </button>
+          <button
+            onClick={() => {
+              setSession(null);
+              setSelectedWaypoint(null);
+            }}
+            className="text-sm text-gray-400 hover:text-white transition-colors px-3 py-1
+                       bg-gray-800 rounded hover:bg-gray-700"
+          >
+            Load New File
+          </button>
+        </div>
       </header>
 
-      {/* Stats bar */}
-      <div className="px-4 py-3 bg-gray-900/50 border-b border-gray-800">
-        <SessionStats session={session} />
-      </div>
+      {/* Collapsible stats bar */}
+      {statsOpen && (
+        <div className="px-4 py-2 bg-gray-900/50 border-b border-gray-800">
+          <SessionStats session={session} />
+        </div>
+      )}
 
       {/* Main content */}
       <div className="flex-1 flex min-h-0">
-        {/* Waypoint sidebar */}
+        {/* Sidebar: filters + waypoints */}
         <aside className="w-56 border-r border-gray-800 bg-gray-900/30 overflow-hidden flex flex-col">
+          <FilterPanel
+            settings={filterSettings}
+            onSettingsChange={setFilterSettings}
+            removedCount={filterResult?.removedCount}
+            totalWaypoints={session.waypoints.length}
+            filteredWaypoints={filteredWaypoints.length}
+          />
           <WaypointPanel
-            waypoints={session.waypoints}
+            waypoints={filteredWaypoints}
             selectedWaypoint={selectedWaypoint}
             onWaypointSelect={handleWaypointSelect}
           />
         </aside>
 
-        {/* Map and charts */}
-        <main className="flex-1 flex flex-col min-w-0">
-          {/* Map */}
-          <div className="h-1/2 border-b border-gray-800 p-2">
-            {apiKey ? (
-              <MapView
-                waypoints={session.waypoints}
-                samples={session.samples}
-                selectedWaypoint={selectedWaypoint}
-                onWaypointSelect={handleWaypointSelect}
-                apiKey={apiKey}
-              />
-            ) : (
-              <div className="flex items-center justify-center h-full text-gray-500">
-                <div className="text-center">
-                  <p>Google Maps API key required for map view</p>
-                  <p className="text-sm mt-1 text-gray-600">
-                    Set <code>NEXT_PUBLIC_GOOGLE_MAPS_API_KEY</code> in{" "}
-                    <code>.env.local</code> or enter it on the upload screen
-                  </p>
-                </div>
+        {/* Map and charts — resizable split */}
+        <main className="flex-1 min-w-0">
+          <ResizableSplit
+            top={
+              <div className="h-full p-2">
+                {apiKey ? (
+                  <MapView
+                    waypoints={filteredWaypoints}
+                    samples={session.samples}
+                    selectedWaypoint={selectedWaypoint}
+                    onWaypointSelect={handleWaypointSelect}
+                    apiKey={apiKey}
+                    dwellMarkers={dwellMarkers}
+                    showDwellMarkers={filterSettings.showDwellMarkers}
+                  />
+                ) : (
+                  <div className="flex items-center justify-center h-full text-gray-500">
+                    <div className="text-center">
+                      <p>Google Maps API key required for map view</p>
+                      <p className="text-sm mt-1 text-gray-600">
+                        Set <code>NEXT_PUBLIC_GOOGLE_MAPS_API_KEY</code> in{" "}
+                        <code>.env.local</code> or enter it on the upload screen
+                      </p>
+                    </div>
+                  </div>
+                )}
               </div>
-            )}
-          </div>
-
-          {/* Charts */}
-          <div className="h-1/2 p-4">
-            <SensorCharts
-              samples={session.samples}
-              selectedWaypoint={selectedWaypoint}
-            />
-          </div>
+            }
+            bottom={
+              <div className="h-full p-4">
+                <SensorCharts
+                  samples={session.samples}
+                  selectedWaypoint={selectedWaypoint}
+                />
+              </div>
+            }
+            defaultRatio={0.55}
+          />
         </main>
       </div>
     </div>

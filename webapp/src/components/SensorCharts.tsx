@@ -56,7 +56,7 @@ const CHART_CONFIGS: Record<
     keys: [{ key: "tof_mm", color: "#8b5cf6", label: "Distance" }],
   },
   gps: {
-    label: "GPS Speed (m/s)",
+    label: "GPS Speed (km/h)",
     keys: [{ key: "speed", color: "#10b981", label: "Speed" }],
   },
 };
