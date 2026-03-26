@@ -24,10 +24,17 @@ export default function MapView({
   const polylineRef = useRef<google.maps.Polyline | null>(null);
   const [loaded, setLoaded] = useState(false);
 
-  // Load Google Maps script
+  // Load Google Maps script (only once)
   useEffect(() => {
     if (window.google?.maps) {
       setLoaded(true);
+      return;
+    }
+    // Check if script tag already exists
+    const existing = document.querySelector('script[src*="maps.googleapis.com"]');
+    if (existing) {
+      existing.addEventListener("load", () => setLoaded(true));
+      if (window.google?.maps) setLoaded(true);
       return;
     }
     const script = document.createElement("script");
