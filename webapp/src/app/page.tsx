@@ -8,7 +8,7 @@ import WaypointPanel from "@/components/WaypointPanel";
 import SessionStats from "@/components/SessionStats";
 import FilterPanel from "@/components/FilterPanel";
 import ResizableSplit from "@/components/ResizableSplit";
-import { parseCSV } from "@/lib/parseCSV";
+import { parseCSV, parseImages } from "@/lib/parseCSV";
 import { applyAllFilters } from "@/lib/gpsFilters";
 import { SessionData, FilterSettings, DEFAULT_FILTER_SETTINGS } from "@/lib/types";
 
@@ -47,6 +47,15 @@ export default function Home() {
     setSelectedWaypoint(null);
   }, []);
 
+  const handleImagesLoaded = useCallback((files: FileList) => {
+    parseImages(files).then((imageMap) => {
+      setSession((prev) => {
+        if (!prev) return prev;
+        return { ...prev, waypointImages: imageMap };
+      });
+    });
+  }, []);
+
   const handleWaypointSelect = useCallback((index: number) => {
     setSelectedWaypoint((prev) => (prev === index ? null : index));
   }, []);
@@ -64,7 +73,7 @@ export default function Home() {
             from your scanner to visualize the session data.
           </p>
 
-          <FileUpload onFileLoaded={handleFileLoaded} />
+          <FileUpload onFileLoaded={handleFileLoaded} onImagesLoaded={handleImagesLoaded} />
 
           {/* API key input if not set via env */}
           {!GOOGLE_MAPS_API_KEY && (
@@ -168,6 +177,7 @@ export default function Home() {
                     apiKey={apiKey}
                     dwellMarkers={dwellMarkers}
                     showDwellMarkers={filterSettings.showDwellMarkers}
+                    waypointImages={session.waypointImages}
                   />
                 ) : (
                   <div className="flex items-center justify-center h-full text-gray-500">

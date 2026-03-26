@@ -45,6 +45,7 @@ export interface SessionData {
   filename: string;
   samples: ScannerSample[];
   waypoints: Waypoint[];
+  waypointImages: Map<number, string>; // waypoint index -> object URL
 }
 
 export interface Waypoint {

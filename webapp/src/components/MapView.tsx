@@ -40,6 +40,7 @@ interface MapViewProps {
   apiKey: string;
   dwellMarkers?: DwellMarker[];
   showDwellMarkers?: boolean;
+  waypointImages?: Map<number, string>;
 }
 
 export default function MapView({
@@ -50,6 +51,7 @@ export default function MapView({
   apiKey,
   dwellMarkers = [],
   showDwellMarkers = true,
+  waypointImages,
 }: MapViewProps) {
   const mapRef = useRef<HTMLDivElement>(null);
   const googleMapRef = useRef<google.maps.Map | null>(null);
@@ -193,9 +195,15 @@ export default function MapView({
     });
     selectedMarkerRef.current = marker;
 
-    // Show info window
+    // Show info window with optional image
+    const imageUrl = waypointImages?.get(wp.index);
+    const imageHtml = imageUrl
+      ? `<div style="margin-bottom:8px;"><img src="${imageUrl}" style="width:240px;border-radius:6px;display:block;" /></div>`
+      : "";
+
     infoWindowRef.current?.setContent(`
-      <div style="color:#111;font-family:system-ui;font-size:13px;line-height:1.5;min-width:160px;">
+      <div style="color:#111;font-family:system-ui;font-size:13px;line-height:1.5;min-width:${imageUrl ? '240px' : '160px'};max-width:260px;">
+        ${imageHtml}
         <div style="font-weight:700;font-size:14px;margin-bottom:4px;">Waypoint ${wp.index}</div>
         <div>Speed: ${wp.speed.toFixed(1)} km/h</div>
         <div>Alt: ${wp.alt.toFixed(1)} m</div>
@@ -210,7 +218,7 @@ export default function MapView({
 
     // Pan to selected waypoint
     map.panTo({ lat: wp.lat, lng: wp.lng });
-  }, [selectedWaypoint, waypoints, loaded]);
+  }, [selectedWaypoint, waypoints, loaded, waypointImages]);
 
   // Render dwell markers
   useEffect(() => {

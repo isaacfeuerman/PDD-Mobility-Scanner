@@ -69,5 +69,31 @@ export function parseCSV(filename: string, csvText: string): SessionData {
     (a, b) => a.index - b.index
   );
 
-  return { filename, samples, waypoints };
+  return { filename, samples, waypoints, waypointImages: new Map() };
+}
+
+/** Parse image files and map them to waypoint indices by filename (img_0000.jpg -> 0) */
+export function parseImages(files: FileList): Promise<Map<number, string>> {
+  const imageMap = new Map<number, string>();
+  const promises: Promise<void>[] = [];
+
+  for (let i = 0; i < files.length; i++) {
+    const file = files[i];
+    if (!file.type.startsWith("image/")) continue;
+
+    // Extract waypoint index from filename like img_0000.jpg, img_0001.jpg
+    const match = file.name.match(/(\d+)\.\w+$/);
+    if (!match) continue;
+    const wpIndex = parseInt(match[1], 10);
+
+    promises.push(
+      new Promise((resolve) => {
+        const url = URL.createObjectURL(file);
+        imageMap.set(wpIndex, url);
+        resolve();
+      })
+    );
+  }
+
+  return Promise.all(promises).then(() => imageMap);
 }
