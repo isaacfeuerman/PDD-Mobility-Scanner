@@ -50,11 +50,26 @@ export default function Home() {
   }, []);
 
   const handleImagesLoaded = useCallback((files: FileList) => {
-    const imageMap = parseImages(files);
-    setImageCount(imageMap.size);
+    const sequentialMap = parseImages(files);
+    setImageCount(sequentialMap.size);
+
+    // Remap: img_0000 = first waypoint, img_0001 = second waypoint, etc.
     setSession((prev) => {
       if (!prev) return prev;
-      return { ...prev, waypointImages: imageMap };
+
+      const sortedWaypoints = [...prev.waypoints].sort((a, b) => a.index - b.index);
+      const remapped = new Map<number, string>();
+
+      // Get sequential image indices sorted (0, 1, 2, ...)
+      const sortedImageIndices = Array.from(sequentialMap.keys()).sort((a, b) => a - b);
+
+      sortedImageIndices.forEach((imgIdx, i) => {
+        if (i < sortedWaypoints.length) {
+          remapped.set(sortedWaypoints[i].index, sequentialMap.get(imgIdx)!);
+        }
+      });
+
+      return { ...prev, waypointImages: remapped };
     });
   }, []);
 
