@@ -10,7 +10,7 @@ import FilterPanel from "@/components/FilterPanel";
 import ResizableSplit from "@/components/ResizableSplit";
 import { parseCSV, parseImages } from "@/lib/parseCSV";
 import { applyAllFilters } from "@/lib/gpsFilters";
-import { SessionData, FilterSettings, DEFAULT_FILTER_SETTINGS } from "@/lib/types";
+import { SessionData, Waypoint, FilterSettings, DEFAULT_FILTER_SETTINGS } from "@/lib/types";
 
 const GOOGLE_MAPS_API_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || "";
 
@@ -21,6 +21,8 @@ export default function Home() {
   const [filterSettings, setFilterSettings] = useState<FilterSettings>(DEFAULT_FILTER_SETTINGS);
   const [statsOpen, setStatsOpen] = useState(true);
   const [imageCount, setImageCount] = useState(0);
+  // Store raw sequential image map separately so it survives CSV re-parsing
+  const [rawImages, setRawImages] = useState<Map<number, string>>(new Map());
   const [apiKey, setApiKey] = useState(() => {
     if (GOOGLE_MAPS_API_KEY) return GOOGLE_MAPS_API_KEY;
     if (typeof window !== "undefined") {
@@ -43,35 +45,48 @@ export default function Home() {
     return applyAllFilters(session.waypoints, filterSettings);
   }, [session, filterSettings]);
 
+  // Map sequential images to waypoint indices
+  const mapImagesToWaypoints = useCallback(
+    (waypoints: Waypoint[], images: Map<number, string>): Map<number, string> => {
+      if (images.size === 0 || waypoints.length === 0) return new Map();
+
+      const sortedWaypoints = [...waypoints].sort((a, b) => a.index - b.index);
+      const sortedImageIndices = Array.from(images.keys()).sort((a, b) => a - b);
+      const remapped = new Map<number, string>();
+
+      sortedImageIndices.forEach((imgIdx, i) => {
+        if (i < sortedWaypoints.length) {
+          remapped.set(sortedWaypoints[i].index, images.get(imgIdx)!);
+        }
+      });
+
+      return remapped;
+    },
+    []
+  );
+
   const handleFileLoaded = useCallback((filename: string, content: string) => {
     const data = parseCSV(filename, content);
+    // If images were already loaded, map them to the new waypoints
+    if (rawImages.size > 0) {
+      data.waypointImages = mapImagesToWaypoints(data.waypoints, rawImages);
+    }
     setSession(data);
     setSelectedWaypoint(null);
-  }, []);
+  }, [rawImages, mapImagesToWaypoints]);
 
   const handleImagesLoaded = useCallback((files: FileList) => {
     const sequentialMap = parseImages(files);
     setImageCount(sequentialMap.size);
+    setRawImages(sequentialMap);
 
-    // Remap: img_0000 = first waypoint, img_0001 = second waypoint, etc.
+    // If CSV is already loaded, remap images to waypoints
     setSession((prev) => {
       if (!prev) return prev;
-
-      const sortedWaypoints = [...prev.waypoints].sort((a, b) => a.index - b.index);
-      const remapped = new Map<number, string>();
-
-      // Get sequential image indices sorted (0, 1, 2, ...)
-      const sortedImageIndices = Array.from(sequentialMap.keys()).sort((a, b) => a - b);
-
-      sortedImageIndices.forEach((imgIdx, i) => {
-        if (i < sortedWaypoints.length) {
-          remapped.set(sortedWaypoints[i].index, sequentialMap.get(imgIdx)!);
-        }
-      });
-
-      return { ...prev, waypointImages: remapped };
+      const mapped = mapImagesToWaypoints(prev.waypoints, sequentialMap);
+      return { ...prev, waypointImages: mapped };
     });
-  }, []);
+  }, [mapImagesToWaypoints]);
 
   const handleWaypointSelect = useCallback((index: number) => {
     setSelectedWaypoint((prev) => (prev === index ? null : index));
@@ -163,6 +178,7 @@ export default function Home() {
               setShowDashboard(false);
               setSelectedWaypoint(null);
               setImageCount(0);
+              setRawImages(new Map());
             }}
             className="text-sm text-gray-400 hover:text-white transition-colors px-3 py-1
                        bg-gray-800 rounded hover:bg-gray-700"
