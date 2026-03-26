@@ -16,9 +16,11 @@ const GOOGLE_MAPS_API_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || "";
 
 export default function Home() {
   const [session, setSession] = useState<SessionData | null>(null);
+  const [showDashboard, setShowDashboard] = useState(false);
   const [selectedWaypoint, setSelectedWaypoint] = useState<number | null>(null);
   const [filterSettings, setFilterSettings] = useState<FilterSettings>(DEFAULT_FILTER_SETTINGS);
   const [statsOpen, setStatsOpen] = useState(true);
+  const [imageCount, setImageCount] = useState(0);
   const [apiKey, setApiKey] = useState(() => {
     if (GOOGLE_MAPS_API_KEY) return GOOGLE_MAPS_API_KEY;
     if (typeof window !== "undefined") {
@@ -48,11 +50,11 @@ export default function Home() {
   }, []);
 
   const handleImagesLoaded = useCallback((files: FileList) => {
-    parseImages(files).then((imageMap) => {
-      setSession((prev) => {
-        if (!prev) return prev;
-        return { ...prev, waypointImages: imageMap };
-      });
+    const imageMap = parseImages(files);
+    setImageCount(imageMap.size);
+    setSession((prev) => {
+      if (!prev) return prev;
+      return { ...prev, waypointImages: imageMap };
     });
   }, []);
 
@@ -60,8 +62,12 @@ export default function Home() {
     setSelectedWaypoint((prev) => (prev === index ? null : index));
   }, []);
 
-  // Landing / upload screen
-  if (!session) {
+  const handleReady = useCallback(() => {
+    setShowDashboard(true);
+  }, []);
+
+  // Landing / upload screen — stay here until user clicks "View Dashboard"
+  if (!session || !showDashboard) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center p-8">
         <div className="max-w-xl w-full">
@@ -69,11 +75,17 @@ export default function Home() {
             PDD Mobility Scanner
           </h1>
           <p className="text-gray-500 text-center mb-8">
-            Upload a <code className="text-blue-400">trail_data.csv</code> file
-            from your scanner to visualize the session data.
+            Upload your data files from the scanner to visualize the session.
           </p>
 
-          <FileUpload onFileLoaded={handleFileLoaded} onImagesLoaded={handleImagesLoaded} />
+          <FileUpload
+            onFileLoaded={handleFileLoaded}
+            onImagesLoaded={handleImagesLoaded}
+            onReady={handleReady}
+            hasCSV={session !== null}
+            hasImages={imageCount > 0}
+            imageCount={imageCount}
+          />
 
           {/* API key input if not set via env */}
           {!GOOGLE_MAPS_API_KEY && (
@@ -116,6 +128,11 @@ export default function Home() {
         <div className="flex items-center gap-4">
           <h1 className="text-lg font-bold">PDD Mobility Scanner</h1>
           <span className="text-sm text-gray-500">{session.filename}</span>
+          {imageCount > 0 && (
+            <span className="text-xs text-purple-400 bg-purple-900/30 px-2 py-0.5 rounded">
+              {imageCount} images
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-2">
           <button
@@ -128,7 +145,9 @@ export default function Home() {
           <button
             onClick={() => {
               setSession(null);
+              setShowDashboard(false);
               setSelectedWaypoint(null);
+              setImageCount(0);
             }}
             className="text-sm text-gray-400 hover:text-white transition-colors px-3 py-1
                        bg-gray-800 rounded hover:bg-gray-700"

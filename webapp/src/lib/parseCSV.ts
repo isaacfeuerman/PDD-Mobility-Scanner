@@ -72,28 +72,25 @@ export function parseCSV(filename: string, csvText: string): SessionData {
   return { filename, samples, waypoints, waypointImages: new Map() };
 }
 
-/** Parse image files and map them to waypoint indices by filename (img_0000.jpg -> 0) */
-export function parseImages(files: FileList): Promise<Map<number, string>> {
+/** Parse image files and map them to waypoint indices by filename.
+ *  Handles: img_0000.jpg, img_0001, IMG_0002.JPG, etc. */
+export function parseImages(files: FileList): Map<number, string> {
   const imageMap = new Map<number, string>();
-  const promises: Promise<void>[] = [];
 
   for (let i = 0; i < files.length; i++) {
     const file = files[i];
-    if (!file.type.startsWith("image/")) continue;
 
-    // Extract waypoint index from filename like img_0000.jpg, img_0001.jpg
-    const match = file.name.match(/(\d+)\.\w+$/);
+    // Skip CSV files and other non-image files (but allow files with no MIME type)
+    if (file.name.endsWith(".csv") || file.name.endsWith(".txt")) continue;
+
+    // Extract trailing number from filename: img_0000.jpg, img_0001, IMG_0002.JPG
+    const match = file.name.match(/(\d+)(?:\.\w+)?$/);
     if (!match) continue;
     const wpIndex = parseInt(match[1], 10);
 
-    promises.push(
-      new Promise((resolve) => {
-        const url = URL.createObjectURL(file);
-        imageMap.set(wpIndex, url);
-        resolve();
-      })
-    );
+    const url = URL.createObjectURL(file);
+    imageMap.set(wpIndex, url);
   }
 
-  return Promise.all(promises).then(() => imageMap);
+  return imageMap;
 }

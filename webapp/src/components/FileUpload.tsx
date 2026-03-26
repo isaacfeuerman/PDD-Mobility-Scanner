@@ -5,19 +5,32 @@ import { useCallback, useState } from "react";
 interface FileUploadProps {
   onFileLoaded: (filename: string, content: string) => void;
   onImagesLoaded: (files: FileList) => void;
+  onReady: () => void;
+  hasCSV: boolean;
+  hasImages: boolean;
+  imageCount: number;
 }
 
-export default function FileUpload({ onFileLoaded, onImagesLoaded }: FileUploadProps) {
-  const [csvName, setCsvName] = useState<string | null>(null);
-  const [imageCount, setImageCount] = useState<number>(0);
-
+export default function FileUpload({
+  onFileLoaded,
+  onImagesLoaded,
+  onReady,
+  hasCSV,
+  hasImages,
+  imageCount,
+}: FileUploadProps) {
   const handleDrop = useCallback(
     (e: React.DragEvent) => {
       e.preventDefault();
       const files = e.dataTransfer.files;
-      processFiles(files);
+      for (let i = 0; i < files.length; i++) {
+        if (files[i].name.endsWith(".csv")) {
+          readCSV(files[i]);
+          break;
+        }
+      }
     },
-    [onFileLoaded, onImagesLoaded]
+    [onFileLoaded]
   );
 
   const handleCSVChange = useCallback(
@@ -32,38 +45,16 @@ export default function FileUpload({ onFileLoaded, onImagesLoaded }: FileUploadP
     (e: React.ChangeEvent<HTMLInputElement>) => {
       const files = e.target.files;
       if (files && files.length > 0) {
-        setImageCount(files.length);
         onImagesLoaded(files);
       }
     },
     [onImagesLoaded]
   );
 
-  function processFiles(files: FileList) {
-    // Separate CSV from images
-    const imageFiles: File[] = [];
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
-      if (file.name.endsWith(".csv")) {
-        readCSV(file);
-      } else if (file.type.startsWith("image/")) {
-        imageFiles.push(file);
-      }
-    }
-    if (imageFiles.length > 0) {
-      // Create a synthetic FileList-like structure via DataTransfer
-      const dt = new DataTransfer();
-      imageFiles.forEach((f) => dt.items.add(f));
-      setImageCount(imageFiles.length);
-      onImagesLoaded(dt.files);
-    }
-  }
-
   function readCSV(file: File) {
     const reader = new FileReader();
     reader.onload = (e) => {
       const text = e.target?.result as string;
-      setCsvName(file.name);
       onFileLoaded(file.name, text);
     };
     reader.readAsText(file);
@@ -75,8 +66,11 @@ export default function FileUpload({ onFileLoaded, onImagesLoaded }: FileUploadP
       <div
         onDrop={handleDrop}
         onDragOver={(e) => e.preventDefault()}
-        className="border-2 border-dashed border-gray-700 rounded-xl p-10 text-center
-                   hover:border-blue-500 hover:bg-gray-900/50 transition-colors cursor-pointer"
+        className={`border-2 border-dashed rounded-xl p-10 text-center transition-colors cursor-pointer ${
+          hasCSV
+            ? "border-green-600/50 bg-green-900/10"
+            : "border-gray-700 hover:border-blue-500 hover:bg-gray-900/50"
+        }`}
       >
         <input
           type="file"
@@ -87,25 +81,27 @@ export default function FileUpload({ onFileLoaded, onImagesLoaded }: FileUploadP
         />
         <label htmlFor="csv-upload" className="cursor-pointer">
           <p className="text-lg font-medium text-gray-300">
-            Drop your <code className="text-blue-400">trail_data.csv</code> here
+            {hasCSV ? "CSV loaded" : <>Drop your <code className="text-blue-400">trail_data.csv</code> here</>}
           </p>
-          <p className="text-sm text-gray-500 mt-2">
-            or click to browse
-          </p>
-          {csvName && (
-            <p className="text-sm text-green-400 mt-2">
-              Loaded: {csvName}
-            </p>
+          {!hasCSV && (
+            <p className="text-sm text-gray-500 mt-2">or click to browse</p>
+          )}
+          {hasCSV && (
+            <p className="text-sm text-green-400 mt-1">Click to replace</p>
           )}
         </label>
       </div>
 
       {/* Image Folder Upload */}
-      <div className="border-2 border-dashed border-gray-700 rounded-xl p-6 text-center
-                      hover:border-purple-500 hover:bg-gray-900/50 transition-colors cursor-pointer">
+      <div
+        className={`border-2 border-dashed rounded-xl p-6 text-center transition-colors cursor-pointer ${
+          hasImages
+            ? "border-green-600/50 bg-green-900/10"
+            : "border-gray-700 hover:border-purple-500 hover:bg-gray-900/50"
+        }`}
+      >
         <input
           type="file"
-          accept="image/*"
           multiple
           /* @ts-expect-error webkitdirectory is not in React types */
           webkitdirectory=""
@@ -115,18 +111,30 @@ export default function FileUpload({ onFileLoaded, onImagesLoaded }: FileUploadP
         />
         <label htmlFor="image-upload" className="cursor-pointer">
           <p className="text-base font-medium text-gray-300">
-            Upload image folder <span className="text-gray-500">(optional)</span>
+            {hasImages
+              ? `${imageCount} images loaded`
+              : <>Upload image folder <span className="text-gray-500">(optional)</span></>
+            }
           </p>
           <p className="text-sm text-gray-500 mt-1">
-            Select the folder containing <code className="text-purple-400">img_0000.jpg</code>, <code className="text-purple-400">img_0001.jpg</code>, etc.
+            {hasImages
+              ? "Click to replace"
+              : <>Select the folder with <code className="text-purple-400">img_0000</code>, <code className="text-purple-400">img_0001</code>, etc.</>
+            }
           </p>
-          {imageCount > 0 && (
-            <p className="text-sm text-green-400 mt-2">
-              {imageCount} images loaded
-            </p>
-          )}
         </label>
       </div>
+
+      {/* Launch button */}
+      {hasCSV && (
+        <button
+          onClick={onReady}
+          className="w-full py-3 bg-blue-600 text-white font-medium rounded-xl
+                     hover:bg-blue-500 transition-colors text-lg"
+        >
+          View Dashboard
+        </button>
+      )}
     </div>
   );
 }
