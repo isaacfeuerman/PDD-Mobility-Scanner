@@ -1,0 +1,48 @@
+// LED Debug Script — test RGB LED on pins 3 (red) and 4 (blue)
+// Upload this sketch to verify wiring before running the full scanner.
+
+#define LED_RED_PIN  3
+#define LED_BLUE_PIN 4
+
+void setup() {
+  Serial.begin(115200);
+  delay(2000);
+  Serial.println("LED Debug Script — pins 3 (red), 4 (blue)");
+
+  pinMode(LED_RED_PIN, OUTPUT);
+  pinMode(LED_BLUE_PIN, OUTPUT);
+  digitalWrite(LED_RED_PIN, LOW);
+  digitalWrite(LED_BLUE_PIN, LOW);
+
+  Serial.println("Phase 1: Red ON for 2 seconds...");
+  digitalWrite(LED_RED_PIN, HIGH);
+  delay(2000);
+  digitalWrite(LED_RED_PIN, LOW);
+  delay(500);
+
+  Serial.println("Phase 2: Blue ON for 2 seconds...");
+  digitalWrite(LED_BLUE_PIN, HIGH);
+  delay(2000);
+  digitalWrite(LED_BLUE_PIN, LOW);
+  delay(500);
+
+  Serial.println("Phase 3: Both ON for 2 seconds...");
+  digitalWrite(LED_RED_PIN, HIGH);
+  digitalWrite(LED_BLUE_PIN, HIGH);
+  delay(2000);
+  digitalWrite(LED_RED_PIN, LOW);
+  digitalWrite(LED_BLUE_PIN, LOW);
+  delay(500);
+
+  Serial.println("Phase 4: Flashing red (500ms on/off)...");
+}
+
+void loop() {
+  // Continuous red flash — same pattern as V5 pre-GPS behavior
+  digitalWrite(LED_RED_PIN, HIGH);
+  Serial.println("RED ON");
+  delay(500);
+  digitalWrite(LED_RED_PIN, LOW);
+  Serial.println("RED OFF");
+  delay(500);
+}
