@@ -1,0 +1,68 @@
+// Combined Debug — HC-SR04 ultrasonic + RGB LED
+// LED turns red when object is within 24", blue when farther away.
+// Upload to verify both components together before running the full scanner.
+
+#define TRIG_PIN     6
+#define ECHO_PIN     7
+#define LED_RED_PIN  3
+#define LED_BLUE_PIN 4
+
+#define THRESHOLD_IN 24.0
+
+uint16_t readUltrasonic() {
+  digitalWrite(TRIG_PIN, LOW);
+  delayMicroseconds(2);
+  digitalWrite(TRIG_PIN, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(TRIG_PIN, LOW);
+
+  unsigned long duration = pulseIn(ECHO_PIN, HIGH, 30000);  // 30ms timeout (~5m max)
+  if (duration == 0) return 0;  // No echo / timeout
+
+  return (uint16_t)(duration * 0.343 / 2.0);  // Convert to mm
+}
+
+void setup() {
+  Serial.begin(115200);
+  delay(2000);
+  Serial.println("Combined Debug — HC-SR04 + RGB LED");
+  Serial.println("Red = within 24\", Blue = beyond 24\", Off = no echo");
+  Serial.println();
+
+  pinMode(TRIG_PIN, OUTPUT);
+  pinMode(ECHO_PIN, INPUT);
+  digitalWrite(TRIG_PIN, LOW);
+
+  pinMode(LED_RED_PIN, OUTPUT);
+  pinMode(LED_BLUE_PIN, OUTPUT);
+  digitalWrite(LED_RED_PIN, LOW);
+  digitalWrite(LED_BLUE_PIN, LOW);
+}
+
+void loop() {
+  uint16_t dist_mm = readUltrasonic();
+
+  if (dist_mm == 0) {
+    digitalWrite(LED_RED_PIN, LOW);
+    digitalWrite(LED_BLUE_PIN, LOW);
+    Serial.println("No echo (timeout or no object in range)");
+  } else {
+    float inches = dist_mm / 25.4;
+
+    Serial.print("Distance: ");
+    Serial.print(inches, 1);
+    Serial.print(" in");
+
+    if (inches <= THRESHOLD_IN) {
+      digitalWrite(LED_RED_PIN, HIGH);
+      digitalWrite(LED_BLUE_PIN, LOW);
+      Serial.println("  [RED]");
+    } else {
+      digitalWrite(LED_RED_PIN, LOW);
+      digitalWrite(LED_BLUE_PIN, HIGH);
+      Serial.println("  [BLUE]");
+    }
+  }
+
+  delay(500);
+}
