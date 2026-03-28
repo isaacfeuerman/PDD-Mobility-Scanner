@@ -1,0 +1,46 @@
+// Ultrasonic Debug Script — test HC-SR04 on pins 6 (TRIG) and 7 (ECHO)
+// Upload this sketch to verify wiring before running the full scanner.
+
+#define TRIG_PIN 6
+#define ECHO_PIN 7
+
+uint16_t readUltrasonic() {
+  digitalWrite(TRIG_PIN, LOW);
+  delayMicroseconds(2);
+  digitalWrite(TRIG_PIN, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(TRIG_PIN, LOW);
+
+  unsigned long duration = pulseIn(ECHO_PIN, HIGH, 30000);  // 30ms timeout (~5m max)
+  if (duration == 0) return 0;  // No echo / timeout
+
+  return (uint16_t)(duration * 0.343 / 2.0);  // Convert to mm
+}
+
+void setup() {
+  Serial.begin(115200);
+  delay(2000);
+  Serial.println("Ultrasonic Debug Script — HC-SR04 on pins 6 (TRIG), 7 (ECHO)");
+  Serial.println("Reading every 500ms...");
+  Serial.println();
+
+  pinMode(TRIG_PIN, OUTPUT);
+  pinMode(ECHO_PIN, INPUT);
+  digitalWrite(TRIG_PIN, LOW);
+}
+
+void loop() {
+  uint16_t dist = readUltrasonic();
+
+  if (dist == 0) {
+    Serial.println("No echo (timeout or no object in range)");
+  } else {
+    Serial.print("Distance: ");
+    Serial.print(dist);
+    Serial.print(" mm  (");
+    Serial.print(dist / 10.0, 1);
+    Serial.println(" cm)");
+  }
+
+  delay(500);
+}
