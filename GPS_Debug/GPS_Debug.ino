@@ -6,9 +6,9 @@ uint32_t goodSentences = 0;
 void setup() {
   Serial.begin(115200);
   delay(2000);
-  Serial1.begin(115200);
+  Serial1.begin(9600);
   Serial.println("=== GPS Debug Sketch ===");
-  Serial.println("Checking Serial1 @ 115200 baud...");
+  Serial.println("Checking Serial1 @ 9600 baud...");
   Serial.println();
 }
 
