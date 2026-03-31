@@ -42,9 +42,11 @@ void loop() {
     }
 
     if (gps.date.isValid() && gps.time.isValid()) {
-      Serial.printf("UTC: %04d-%02d-%02d %02d:%02d:%02d\n",
+      char ts[32];
+      sprintf(ts, "%04d-%02d-%02d %02d:%02d:%02d",
         gps.date.year(), gps.date.month(), gps.date.day(),
         gps.time.hour(), gps.time.minute(), gps.time.second());
+      Serial.print("UTC: "); Serial.println(ts);
     }
 
     Serial.println("------------------");
