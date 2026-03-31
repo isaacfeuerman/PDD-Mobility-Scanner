@@ -5,9 +5,9 @@ TinyGPSPlus gps;
 void setup() {
   Serial.begin(115200);
   delay(2000);
-  Serial1.begin(9600);
+  Serial1.begin(4800);  // Try 4800, 9600, 38400, 115200
   Serial.println("=== GPS Debug Sketch ===");
-  Serial.println("Checking Serial1 @ 9600 baud...");
+  Serial.println("Checking Serial1 @ 4800 baud...");
   Serial.println();
 }
 
