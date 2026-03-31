@@ -1,35 +1,37 @@
 #include <TinyGPS++.h>
 
 TinyGPSPlus gps;
+uint32_t goodSentences = 0;
 
 void setup() {
   Serial.begin(115200);
   delay(2000);
-  Serial1.begin(4800);  // Try 4800, 9600, 38400, 115200
+  Serial1.begin(115200);
   Serial.println("=== GPS Debug Sketch ===");
-  Serial.println("Checking Serial1 @ 4800 baud...");
+  Serial.println("Checking Serial1 @ 115200 baud...");
   Serial.println();
 }
 
 void loop() {
-  // Read everything available from GPS module
   while (Serial1.available()) {
     char c = Serial1.read();
-    Serial.write(c);  // Echo raw NMEA to serial monitor
-    gps.encode(c);
+    Serial.write(c);  // Echo raw NMEA
+    if (gps.encode(c)) {
+      goodSentences++;
+    }
   }
 
-  // Every 5 seconds, print a status summary
   static unsigned long lastReport = 0;
   if (millis() - lastReport >= 5000) {
     lastReport = millis();
 
     Serial.println();
     Serial.println("--- GPS Status ---");
-    Serial.print("Chars received:  "); Serial.println(gps.charsProcessed());
-    Serial.print("Sentences (OK):  "); Serial.println(gps.sentencesWithFix());
-    Serial.print("Sentences (bad): "); Serial.println(gps.failedChecksum());
-    Serial.print("Satellites:      "); Serial.println(gps.satellites.value());
+    Serial.print("Chars received:    "); Serial.println(gps.charsProcessed());
+    Serial.print("Sentences parsed:  "); Serial.println(goodSentences);
+    Serial.print("Sentences w/ fix:  "); Serial.println(gps.sentencesWithFix());
+    Serial.print("Bad checksums:     "); Serial.println(gps.failedChecksum());
+    Serial.print("Satellites:        "); Serial.println(gps.satellites.value());
 
     if (gps.location.isValid()) {
       Serial.print("Lat: "); Serial.println(gps.location.lat(), 6);
@@ -50,21 +52,15 @@ void loop() {
     }
 
     Serial.println("------------------");
-    Serial.println();
 
-    // Diagnosis hints
     if (gps.charsProcessed() == 0) {
-      Serial.println("!! No data from GPS. Check:");
-      Serial.println("   - GPS TX -> Serial1 RX wiring");
-      Serial.println("   - GPS module power (3.3V)");
-      Serial.println("   - Baud rate (try 4800 if 9600 doesn't work)");
-    } else if (gps.failedChecksum() > gps.sentencesWithFix()) {
-      Serial.println("!! Many bad checksums. Check:");
-      Serial.println("   - Wiring (loose connection?)");
-      Serial.println("   - Baud rate mismatch");
+      Serial.println("!! No data from GPS module.");
+    } else if (goodSentences == 0) {
+      Serial.println("!! Chars arriving but no valid sentences.");
+      Serial.println("   Check baud rate or wiring.");
     } else if (!gps.location.isValid()) {
-      Serial.println(">> GPS is talking but no fix yet.");
-      Serial.println("   Move to open sky and wait 1-3 min.");
+      Serial.println(">> GPS parsing OK, just no satellite fix.");
+      Serial.println("   Move outside with clear sky view.");
     }
 
     Serial.println();
