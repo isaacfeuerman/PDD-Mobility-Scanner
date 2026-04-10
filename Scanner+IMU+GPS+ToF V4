@@ -461,16 +461,17 @@ void loop() {
   // --- Waypoint: flush to SD + capture image ---
   if (now - lastWaypoint >= waypointInterval) {
 
+    // Flush sensor buffer to SD (even without GPS — rows handle empty GPS columns)
+    flushSamplesToSD();
+
     if (!hasFix) {
-      lastWaypoint = now;
       Serial.print("No GPS fix yet. Satellites: ");
       Serial.println(gps.satellites.value());
-      // Don't reset buffer — keep accumulating until we get a fix
+      sampleCount = 0;
+      lastWaypoint = millis();
+      lastSample = millis();
       return;
     }
-
-    // Flush sensor buffer to SD
-    flushSamplesToSD();
 
     // Capture JPEG
     unsigned long camStart = millis();
