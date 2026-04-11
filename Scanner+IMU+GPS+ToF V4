@@ -376,7 +376,7 @@ void setup() {
   // Start MP4 recording pipeline
   mp4.configVideo(configV);
   mp4.setRecordingFileName("trail_video");
-  mp4.setRecordingDuration(0);
+  mp4.setRecordingDuration(3600);  // 1 hour max
 
   videoStreamer.registerInput(Camera.getStream(VIDEO_CHANNEL));
   videoStreamer.registerOutput(mp4);
