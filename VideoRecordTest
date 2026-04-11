@@ -9,8 +9,8 @@ VideoSetting config(CHANNEL);
 MP4Recording mp4;
 StreamIO videoStreamer(1, 1);
 
-// Stop button — S1 on AMB82 Mini (GPIOA_5)
-#define STOP_BTN_PIN PA_5
+// Stop button — BOOT button on AMB82 Mini
+#define STOP_BTN_PIN PA_13
 bool recording = false;
 
 void setup() {
