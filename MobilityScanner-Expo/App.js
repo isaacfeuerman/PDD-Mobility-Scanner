@@ -301,6 +301,7 @@ export default function App() {
         style={StyleSheet.absoluteFill}
         facing="back"
         mode="video"
+        videoQuality="720p"
       />
 
       {/* Top bar */}
