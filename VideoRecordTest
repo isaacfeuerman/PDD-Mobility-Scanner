@@ -1,16 +1,13 @@
-#include "VideoStream.h"
 #include "StreamIO.h"
+#include "VideoStream.h"
 #include "MP4Recording.h"
-#include "AmebaFatFS.h"
 
-// Video recording
-#define VIDEO_CHANNEL 0
-VideoSetting configV(VIDEO_FHD, 5, VIDEO_H264, 0);  // 5 FPS H.264
+#define CHANNEL 0
+
+// Use default preset for channel 0 (1920x1080 30FPS H264)
+VideoSetting config(CHANNEL);
 MP4Recording mp4;
 StreamIO videoStreamer(1, 1);
-
-// SD card
-AmebaFatFS fs;
 
 // Stop button (BOOT button on AMB82 Mini)
 #define STOP_BTN_PIN 1
@@ -24,37 +21,35 @@ void setup() {
   // Stop button
   pinMode(STOP_BTN_PIN, INPUT_PULLUP);
 
-  // Init SD card first
-  if (!fs.begin()) {
-    Serial.println("ERROR: SD card failed to mount.");
-    while (1);
-  }
-  Serial.println("SD card ready.");
-
-  // Init camera
-  Camera.configVideoChannel(VIDEO_CHANNEL, configV);
+  // Configure camera video channel
+  Camera.configVideoChannel(CHANNEL, config);
   Camera.videoInit();
-  Serial.println("Camera initialized.");
 
-  // Set up MP4 recording
-  mp4.configVideo(configV);
+  // Configure MP4 recording
+  mp4.configVideo(config);
+  mp4.setRecordingDuration(60);
+  mp4.setRecordingFileCount(1);
   mp4.setRecordingFileName("test_video");
-  mp4.setRecordingDuration(60);  // 60 seconds for testing
+  mp4.setRecordingDataType(STORAGE_VIDEO);
 
   // Wire camera → MP4
-  videoStreamer.registerInput(Camera.getStream(VIDEO_CHANNEL));
+  videoStreamer.registerInput(Camera.getStream(CHANNEL));
   videoStreamer.registerOutput(mp4);
   if (videoStreamer.begin() != 0) {
-    Serial.println("ERROR: StreamIO link failed.");
+    Serial.println("StreamIO link start failed");
     while (1);
   }
   Serial.println("StreamIO linked.");
 
   // Start recording
-  Camera.channelBegin(VIDEO_CHANNEL);
+  Camera.channelBegin(CHANNEL);
   mp4.begin();
   recording = true;
+
+  delay(1000);
   Serial.println("Recording started. Press BOOT button to stop.");
+  Camera.printInfo();
+  mp4.printInfo();
 }
 
 void loop() {
@@ -78,7 +73,7 @@ void loop() {
     }
   }
 
-  // Print a heartbeat every 5 seconds so we know it's alive
+  // Heartbeat every 5 seconds
   static unsigned long lastPrint = 0;
   if (millis() - lastPrint >= 5000) {
     lastPrint = millis();
