@@ -83,52 +83,61 @@ export default function App() {
   // ── Start recording ──
 
   const startRecording = useCallback(async () => {
-    if (!cameraRef.current) return;
+    if (!cameraRef.current) {
+      Alert.alert('Error', 'Camera not ready');
+      return;
+    }
 
-    const num = sessionNumRef.current;
-    const dir = sessionDir(num);
-    await FileSystem.makeDirectoryAsync(dir, { intermediates: true });
-    sessionDirRef.current = dir;
-
-    // Record start time (Unix epoch ms)
-    const recStartMs = Date.now();
-    recStartMsRef.current = recStartMs;
-    csvRowsRef.current = [];
-
-    // Start GPS logging (~1Hz) — rows buffered in memory, written on stop
-    locationSub.current = await Location.watchPositionAsync(
-      {
-        accuracy: Location.Accuracy.BestForNavigation,
-        timeInterval: 1000,
-        distanceInterval: 0,
-      },
-      (loc) => {
-        const { latitude, longitude, altitude, speed, heading } = loc.coords;
-        const ms = Date.now();
-        const utc = new Date(loc.timestamp).toISOString();
-        const spd = speed != null && speed >= 0 ? speed : 0;
-        const hdg = heading != null && heading >= 0 ? heading : 0;
-        const alt = altitude != null ? altitude : 0;
-
-        csvRowsRef.current.push(`${ms},${utc},${latitude},${longitude},${alt},${spd},${hdg},,`);
-
-        setHasFix(true);
-        setCoords({ lat: latitude, lng: longitude });
-      }
-    );
-
-    // Start elapsed counter
-    setElapsed(0);
-    const elapsedInterval = setInterval(() => {
-      setElapsed((prev) => prev + 1);
-    }, 1000);
-    timerRef.current = { elapsedInterval };
-
-    // Start video recording
-    setIsRecording(true);
     try {
+      const num = sessionNumRef.current;
+      const dir = sessionDir(num);
+      await FileSystem.makeDirectoryAsync(dir, { intermediates: true });
+      sessionDirRef.current = dir;
+
+      // Record start time (Unix epoch ms)
+      const recStartMs = Date.now();
+      recStartMsRef.current = recStartMs;
+      csvRowsRef.current = [];
+
+      // Update UI immediately
+      setIsRecording(true);
+      setElapsed(0);
+
+      // Start elapsed counter
+      const elapsedInterval = setInterval(() => {
+        setElapsed((prev) => prev + 1);
+      }, 1000);
+      timerRef.current = { elapsedInterval };
+
+      // Start GPS logging (~1Hz)
+      try {
+        locationSub.current = await Location.watchPositionAsync(
+          {
+            accuracy: Location.Accuracy.BestForNavigation,
+            timeInterval: 1000,
+            distanceInterval: 0,
+          },
+          (loc) => {
+            const { latitude, longitude, altitude, speed, heading } = loc.coords;
+            const ms = Date.now();
+            const utc = new Date(loc.timestamp).toISOString();
+            const spd = speed != null && speed >= 0 ? speed : 0;
+            const hdg = heading != null && heading >= 0 ? heading : 0;
+            const alt = altitude != null ? altitude : 0;
+
+            csvRowsRef.current.push(`${ms},${utc},${latitude},${longitude},${alt},${spd},${hdg},,`);
+
+            setHasFix(true);
+            setCoords({ lat: latitude, lng: longitude });
+          }
+        );
+      } catch (locErr) {
+        console.log('GPS unavailable:', locErr.message);
+      }
+
+      // Start video recording
       const video = await cameraRef.current.recordAsync({
-        maxDuration: 3600, // 1 hour max
+        maxDuration: 3600,
       });
 
       // recordAsync resolves when recording stops
@@ -137,7 +146,8 @@ export default function App() {
         await FileSystem.moveAsync({ from: video.uri, to: destPath });
       }
     } catch (e) {
-      console.log('Recording ended:', e.message);
+      Alert.alert('Recording Error', e.message);
+      setIsRecording(false);
     }
   }, []);
 
