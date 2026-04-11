@@ -69,9 +69,12 @@ uint32_t imuFailCount = 0;
 // Timing
 unsigned long lastSample = 0;
 unsigned long lastWaypoint = 0;
+unsigned long lastFrame = 0;
 const unsigned long sampleInterval = 40;     // 40ms = 25Hz
 const unsigned long waypointInterval = 5000; // 5 seconds
+const unsigned long frameInterval = 1000;    // 1000ms = 1 FPS video
 int waypoint = 0;
+uint32_t frameCount = 0;
 
 // GPS state
 bool hasFix = false;
@@ -308,7 +311,7 @@ void setup() {
   Serial.begin(115200);
   delay(3000);
   Serial1.begin(9600);
-  Serial.println("Trail Scanner v4 — 25Hz single CSV, RAM buffered, ToF");
+  Serial.println("Trail Scanner v4 — 25Hz single CSV, RAM buffered, ToF, 1FPS video");
 
   // Init camera
   Camera.configVideoChannel(CHANNEL, config);
@@ -351,7 +354,8 @@ void setup() {
 
   // Clean slate
   fs.remove("trail_data.csv");
-  fs.mkdir("jpg");
+  fs.remove("frame_log.csv");
+  fs.mkdir("vid");
 
   // Write CSV header
   File f = fs.open(String("trail_data.csv"));
@@ -371,6 +375,14 @@ void setup() {
     Serial.println("Wrote trail_data.csv header.");
   }
 
+  // Write frame log header (maps video frames to sensor timestamps)
+  File fl = fs.open(String("frame_log.csv"));
+  if (fl) {
+    fl.println("frame,ms,utc,size_bytes");
+    fl.close();
+    Serial.println("Wrote frame_log.csv header.");
+  }
+
   waypoint = 0;
   sampleCount = 0;
   totalSamples = 0;
@@ -379,6 +391,7 @@ void setup() {
   Serial.println("Waiting for GPS fix...");
   lastSample = millis();
   lastWaypoint = millis();
+  lastFrame = millis();
 }
 
 void loop() {
@@ -458,7 +471,45 @@ void loop() {
     }
   }
 
-  // --- Waypoint: flush to SD + capture image ---
+  // --- 1 FPS video frame capture ---
+  if (now - lastFrame >= frameInterval) {
+    lastFrame = now;
+
+    Camera.getImage(CHANNEL, &img_addr, &img_len);
+
+    if (img_len > 0) {
+      char framePath[40];
+      sprintf(framePath, "vid/frame_%06lu.jpg", frameCount);
+
+      File frameFile = fs.open(String(framePath));
+      if (frameFile) {
+        frameFile.write((uint8_t*)img_addr, img_len);
+        frameFile.close();
+      }
+
+      // Log frame timestamp to frame_log.csv
+      File fl = fs.open(String("frame_log.csv"));
+      if (fl) {
+        fl.seek(fl.size());
+        char logRow[80];
+        if (hasFix) {
+          char ts[32];
+          sprintf(ts, "%04d-%02d-%02dT%02d:%02d:%02d.%02d",
+            gpsYear, gpsMonth, gpsDay,
+            gpsHour, gpsMinute, gpsSecond, gpsCentisecond);
+          sprintf(logRow, "%lu,%lu,%s,%lu", frameCount, now, ts, img_len);
+        } else {
+          sprintf(logRow, "%lu,%lu,,%lu", frameCount, now, img_len);
+        }
+        fl.println(logRow);
+        fl.close();
+      }
+
+      frameCount++;
+    }
+  }
+
+  // --- Waypoint: flush sensor buffer to SD ---
   if (now - lastWaypoint >= waypointInterval) {
 
     // Flush sensor buffer to SD (even without GPS — rows handle empty GPS columns)
@@ -473,28 +524,13 @@ void loop() {
       return;
     }
 
-    // Capture JPEG
-    unsigned long camStart = millis();
-    Camera.getImage(CHANNEL, &img_addr, &img_len);
-
-    if (img_len > 0) {
-      char jpgPath[40];
-      sprintf(jpgPath, "jpg/img_%04d.jpg", waypoint);
-
-      File jpgFile = fs.open(String(jpgPath));
-      if (jpgFile) {
-        jpgFile.write((uint8_t*)img_addr, img_len);
-        jpgFile.close();
-      }
-    }
-    unsigned long camElapsed = millis() - camStart;
-
     // Serial status
     Serial.println("=== Waypoint ===");
     Serial.print("WP: "); Serial.print(waypoint);
     Serial.print("  Samples: "); Serial.print(sampleCount);
     Serial.print("  Total: "); Serial.print(totalSamples);
     Serial.print("  Failures: "); Serial.println(imuFailCount);
+    Serial.print("  Frames: "); Serial.println(frameCount);
     Serial.print("Lat: "); Serial.print(gpsLat, 6);
     Serial.print("  Lng: "); Serial.println(gpsLng, 6);
     Serial.print("Sats: "); Serial.print(gpsSats);
@@ -502,13 +538,6 @@ void loop() {
     if (tofReady) {
       Serial.print("ToF: "); Serial.print(tof.ranging_data.range_mm);
       Serial.println("mm");
-    }
-    if (img_len > 0) {
-      Serial.print("Image: img_"); Serial.print(waypoint);
-      Serial.print(" ("); Serial.print(img_len);
-      Serial.print(" bytes, "); Serial.print(camElapsed); Serial.println("ms)");
-    } else {
-      Serial.println("Camera capture failed.");
     }
     Serial.println("================");
 
