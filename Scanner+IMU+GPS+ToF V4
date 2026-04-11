@@ -14,6 +14,7 @@ TinyGPSPlus gps;
 VideoSetting configV(VIDEO_FHD, 1, VIDEO_H264, 0);  // 1 FPS H.264
 MP4Recording mp4;
 StreamIO videoStreamer(1, 1);  // camera → MP4 pipeline
+uint32_t recStartMs = 0;
 
 // SD card
 AmebaFatFS fs;
@@ -356,27 +357,6 @@ void setup() {
   }
   Serial.println("SD card ready.");
 
-  // Clean slate
-  fs.remove("trail_data.csv");
-
-  // Write CSV header
-  File f = fs.open(String("trail_data.csv"));
-  if (f) {
-    f.println(
-      "ms,utc,"
-      "ax,ay,az,"
-      "gvx,gvy,gvz,"
-      "gx,gy,gz,"
-      "qw,qx,qy,qz,"
-      "mx,my,mz,"
-      "tof_mm,tof_status,"
-      "lat,lng,alt,speed,hdg,sats,hdop,"
-      "cal_sys,cal_gyro,cal_accel,cal_mag"
-    );
-    f.close();
-    Serial.println("Wrote trail_data.csv header.");
-  }
-
   // Start MP4 recording pipeline
   mp4.configVideo(configV);
   mp4.setRecordingDuration(3600);  // 1 hour max
@@ -391,8 +371,33 @@ void setup() {
   }
   Camera.channelBegin(VIDEO_CHANNEL);
   mp4.begin();
+  recStartMs = millis();
 
-  Serial.println("MP4 recording started.");
+  Serial.print("MP4 recording started at ms=");
+  Serial.println(recStartMs);
+
+  // Write CSV with rec_start_ms embedded for exact video sync
+  // In Python: pd.read_csv("trail_data.csv", comment='#')
+  fs.remove("trail_data.csv");
+  File f = fs.open(String("trail_data.csv"));
+  if (f) {
+    char meta[40];
+    sprintf(meta, "# rec_start_ms=%lu", recStartMs);
+    f.println(meta);
+    f.println(
+      "ms,utc,"
+      "ax,ay,az,"
+      "gvx,gvy,gvz,"
+      "gx,gy,gz,"
+      "qw,qx,qy,qz,"
+      "mx,my,mz,"
+      "tof_mm,tof_status,"
+      "lat,lng,alt,speed,hdg,sats,hdop,"
+      "cal_sys,cal_gyro,cal_accel,cal_mag"
+    );
+    f.close();
+    Serial.println("Wrote trail_data.csv header.");
+  }
 
   sampleCount = 0;
   totalSamples = 0;
@@ -507,8 +512,10 @@ void loop() {
     flushSamplesToSD();
 
     // Serial status
+    unsigned long vidSec = (millis() - recStartMs) / 1000;
     Serial.print("Flush | Total: "); Serial.print(totalSamples);
     Serial.print("  Failures: "); Serial.print(imuFailCount);
+    Serial.print("  Video: "); Serial.print(vidSec); Serial.print("s");
     if (hasFix) {
       Serial.print("  Lat: "); Serial.print(gpsLat, 6);
       Serial.print("  Lng: "); Serial.print(gpsLng, 6);
