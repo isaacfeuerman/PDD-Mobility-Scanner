@@ -9,12 +9,17 @@ VideoSetting config(CHANNEL);
 MP4Recording mp4;
 StreamIO videoStreamer(1, 1);
 
+// Stop button — S1 on AMB82 Mini (GPIOA_5)
+#define STOP_BTN_PIN PA_5
 bool recording = false;
 
 void setup() {
   Serial.begin(115200);
   delay(3000);
   Serial.println("=== Video Record Test ===");
+
+  // Stop button (has external pull-high on board, reads LOW when pressed)
+  pinMode(STOP_BTN_PIN, INPUT);
 
   // Configure camera video channel
   Camera.configVideoChannel(CHANNEL, config);
@@ -42,7 +47,7 @@ void setup() {
   recording = true;
 
   delay(1000);
-  Serial.println("Recording started. Send any character in serial monitor to stop.");
+  Serial.println("Recording started. Press BOOT button or send serial to stop.");
   Camera.printInfo();
   mp4.printInfo();
 }
@@ -50,10 +55,20 @@ void setup() {
 void loop() {
   if (!recording) return;
 
-  // Check serial for stop command
-  if (Serial.available()) {
-    while (Serial.available()) Serial.read();  // clear buffer
+  // Check stop button (S1 / BOOT — reads LOW when pressed)
+  bool stopPressed = false;
+  if (digitalRead(STOP_BTN_PIN) == LOW) {
+    delay(50);  // debounce
+    if (digitalRead(STOP_BTN_PIN) == LOW) stopPressed = true;
+  }
 
+  // Also check serial as fallback
+  if (Serial.available()) {
+    while (Serial.available()) Serial.read();
+    stopPressed = true;
+  }
+
+  if (stopPressed) {
     Serial.println("Stop command received...");
     mp4.end();
     Serial.println("MP4 finalized.");
