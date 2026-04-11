@@ -75,10 +75,9 @@ uint32_t imuFailCount = 0;
 
 // Timing
 unsigned long lastSample = 0;
-unsigned long lastWaypoint = 0;
+unsigned long lastFlush = 0;
 const unsigned long sampleInterval = 40;     // 40ms = 25Hz
-const unsigned long waypointInterval = 5000; // 5 seconds
-int waypoint = 0;
+const unsigned long flushInterval = 5000;    // flush RAM buffer to SD every 5s
 
 // GPS state
 bool hasFix = false;
@@ -259,7 +258,7 @@ void flushSamplesToSD() {
         s.year, s.month, s.day,
         s.hour, s.minute, s.second, s.centisecond);
       sprintf(row,
-        "%lu,%s,%d,"
+        "%lu,%s,"
         "%.2f,%.2f,%.2f,"
         "%.2f,%.2f,%.2f,"
         "%.4f,%.4f,%.4f,"
@@ -268,7 +267,7 @@ void flushSamplesToSD() {
         "%s,"
         "%.6f,%.6f,%.1f,%.1f,%.1f,%d,%.1f,"
         "%d,%d,%d,%d",
-        s.ms, ts, waypoint,
+        s.ms, ts,
         s.ax, s.ay, s.az,
         s.gvx, s.gvy, s.gvz,
         s.gx, s.gy, s.gz,
@@ -279,7 +278,7 @@ void flushSamplesToSD() {
         s.calSys, s.calGyro, s.calAccel, s.calMag);
     } else {
       sprintf(row,
-        "%lu,,%d,"
+        "%lu,,"
         "%.2f,%.2f,%.2f,"
         "%.2f,%.2f,%.2f,"
         "%.4f,%.4f,%.4f,"
@@ -288,7 +287,7 @@ void flushSamplesToSD() {
         "%s,"
         ",,,,,,,"
         "%d,%d,%d,%d",
-        s.ms, waypoint,
+        s.ms,
         s.ax, s.ay, s.az,
         s.gvx, s.gvy, s.gvz,
         s.gx, s.gy, s.gz,
@@ -315,7 +314,7 @@ void setup() {
   Serial.begin(115200);
   delay(3000);
   Serial1.begin(9600);
-  Serial.println("Trail Scanner v4 — 25Hz CSV, RAM buffered, ToF, 1FPS MP4 video");
+  Serial.println("Trail Scanner v4 — 25Hz CSV, RAM buffered, ToF, 5FPS MP4 video");
 
   // Init stop button (pulled HIGH, press connects to GND)
   pinMode(STOP_BTN_PIN, INPUT_PULLUP);
@@ -366,7 +365,7 @@ void setup() {
   File f = fs.open(String("trail_data.csv"));
   if (f) {
     f.println(
-      "ms,utc,wp,"
+      "ms,utc,"
       "ax,ay,az,"
       "gvx,gvy,gvz,"
       "gx,gy,gz,"
@@ -410,14 +409,13 @@ void setup() {
     Serial.println("Wrote video_sync.csv.");
   }
 
-  waypoint = 0;
   sampleCount = 0;
   totalSamples = 0;
   imuFailCount = 0;
 
   Serial.println("Waiting for GPS fix...");
   lastSample = millis();
-  lastWaypoint = millis();
+  lastFlush = millis();
 }
 
 void loop() {
@@ -518,44 +516,30 @@ void loop() {
     }
   }
 
-  // --- Waypoint: flush sensor buffer to SD ---
-  if (now - lastWaypoint >= waypointInterval) {
+  // --- Periodic flush: write RAM buffer to SD ---
+  if (now - lastFlush >= flushInterval) {
 
-    // Flush sensor buffer to SD (even without GPS — rows handle empty GPS columns)
     flushSamplesToSD();
-
-    if (!hasFix) {
-      Serial.print("No GPS fix yet. Satellites: ");
-      Serial.println(gps.satellites.value());
-      sampleCount = 0;
-      lastWaypoint = millis();
-      lastSample = millis();
-      return;
-    }
 
     // Serial status
     unsigned long vidSec = (millis() - recStartMs) / 1000;
-    Serial.println("=== Waypoint ===");
-    Serial.print("WP: "); Serial.print(waypoint);
-    Serial.print("  Samples: "); Serial.print(sampleCount);
-    Serial.print("  Total: "); Serial.print(totalSamples);
-    Serial.print("  Failures: "); Serial.println(imuFailCount);
-    Serial.print("Video: "); Serial.print(vidSec); Serial.println("s");
-    Serial.print("Lat: "); Serial.print(gpsLat, 6);
-    Serial.print("  Lng: "); Serial.println(gpsLng, 6);
-    Serial.print("Sats: "); Serial.print(gpsSats);
-    Serial.print("  HDOP: "); Serial.println(gpsHdop, 1);
-    if (tofReady) {
-      Serial.print("ToF: "); Serial.print(tof.ranging_data.range_mm);
-      Serial.println("mm");
+    Serial.print("Flush | Total: "); Serial.print(totalSamples);
+    Serial.print("  Failures: "); Serial.print(imuFailCount);
+    Serial.print("  Video: "); Serial.print(vidSec); Serial.print("s");
+    if (hasFix) {
+      Serial.print("  Lat: "); Serial.print(gpsLat, 6);
+      Serial.print("  Lng: "); Serial.print(gpsLng, 6);
+      Serial.print("  Sats: "); Serial.print(gpsSats);
+    } else {
+      Serial.print("  No GPS fix (sats: "); Serial.print(gps.satellites.value()); Serial.print(")");
     }
-    Serial.println("================");
+    if (tofReady) {
+      Serial.print("  ToF: "); Serial.print(tof.ranging_data.range_mm); Serial.print("mm");
+    }
+    Serial.println();
 
-    waypoint++;
-    sampleCount = 0;  // Reset buffer for next interval
-
-    // Restart timers AFTER all I/O so next interval gets full 5 seconds
-    lastWaypoint = millis();
+    sampleCount = 0;
+    lastFlush = millis();
     lastSample = millis();
   }
 }
