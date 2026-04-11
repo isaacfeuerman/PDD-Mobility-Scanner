@@ -5,7 +5,7 @@
 #define CHANNEL 0
 #define STOP_BTN_PIN 19
 
-VideoSetting config(CHANNEL);
+VideoSetting config(VIDEO_FHD, 1, VIDEO_H264, 0);  // 1 FPS H.264
 MP4Recording mp4;
 StreamIO videoStreamer(1, 1);
 bool recording = false;
