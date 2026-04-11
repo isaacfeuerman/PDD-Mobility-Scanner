@@ -10,7 +10,7 @@ MP4Recording mp4;
 StreamIO videoStreamer(1, 1);
 
 // Stop button — BOOT button on AMB82 Mini
-#define STOP_BTN_PIN PA_13
+#define STOP_BTN_PIN PF_13
 bool recording = false;
 
 void setup() {
