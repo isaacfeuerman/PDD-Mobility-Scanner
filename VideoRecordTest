@@ -3,14 +3,11 @@
 #include "MP4Recording.h"
 
 #define CHANNEL 0
+#define STOP_BTN_PIN 19
 
-// Use default preset for channel 0 (1920x1080 30FPS H264)
 VideoSetting config(CHANNEL);
 MP4Recording mp4;
 StreamIO videoStreamer(1, 1);
-
-// Stop button — external button, S pin to pin 19, - pin to GND
-#define STOP_BTN_PIN 19
 bool recording = false;
 
 void setup() {
@@ -18,36 +15,30 @@ void setup() {
   delay(3000);
   Serial.println("=== Video Record Test ===");
 
-  // Stop button (has external pull-high on board, reads LOW when pressed)
-  pinMode(STOP_BTN_PIN, INPUT);
+  pinMode(STOP_BTN_PIN, INPUT_PULLUP);
 
-  // Configure camera video channel
   Camera.configVideoChannel(CHANNEL, config);
   Camera.videoInit();
 
-  // Configure MP4 recording
   mp4.configVideo(config);
   mp4.setRecordingDuration(60);
   mp4.setRecordingFileCount(1);
   mp4.setRecordingFileName("test_video");
   mp4.setRecordingDataType(STORAGE_VIDEO);
 
-  // Wire camera → MP4
   videoStreamer.registerInput(Camera.getStream(CHANNEL));
   videoStreamer.registerOutput(mp4);
   if (videoStreamer.begin() != 0) {
     Serial.println("StreamIO link start failed");
     while (1);
   }
-  Serial.println("StreamIO linked.");
 
-  // Start recording
   Camera.channelBegin(CHANNEL);
   mp4.begin();
   recording = true;
 
   delay(1000);
-  Serial.println("Recording started. Press BOOT button or send serial to stop.");
+  Serial.println("Recording started. Press button to stop.");
   Camera.printInfo();
   mp4.printInfo();
 }
@@ -55,33 +46,17 @@ void setup() {
 void loop() {
   if (!recording) return;
 
-  // Check stop button (S1 / BOOT — reads LOW when pressed)
-  bool stopPressed = false;
   if (digitalRead(STOP_BTN_PIN) == LOW) {
-    delay(50);  // debounce
-    if (digitalRead(STOP_BTN_PIN) == LOW) stopPressed = true;
-  }
-
-  // Also check serial as fallback
-  if (Serial.available()) {
-    while (Serial.available()) Serial.read();
-    stopPressed = true;
-  }
-
-  if (stopPressed) {
-    Serial.println("Stop command received...");
-    mp4.end();
-    Serial.println("MP4 finalized.");
-
-    recording = false;
-    Serial.println("Recording stopped. Safe to remove power or SD card.");
-
-    while (1) {
-      delay(1000);
+    delay(50);
+    if (digitalRead(STOP_BTN_PIN) == LOW) {
+      Serial.println("Button pressed — stopping...");
+      mp4.end();
+      recording = false;
+      Serial.println("MP4 finalized. Safe to remove power or SD card.");
+      while (1) delay(1000);
     }
   }
 
-  // Heartbeat every 5 seconds
   static unsigned long lastPrint = 0;
   if (millis() - lastPrint >= 5000) {
     lastPrint = millis();
