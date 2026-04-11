@@ -23,6 +23,10 @@ AmebaFatFS fs;
 VL53L1X tof;
 bool tofReady = false;
 
+// Stop button — press to finalize MP4 + CSV, then safe to remove power/card
+#define STOP_BTN_PIN 8
+bool recording = true;
+
 // BNO055 registers
 const uint8_t BNO055_ADDR        = 0x28;
 const uint8_t BNO055_CHIP_ID     = 0x00;
@@ -313,6 +317,9 @@ void setup() {
   Serial1.begin(9600);
   Serial.println("Trail Scanner v4 — 25Hz CSV, RAM buffered, ToF, 1FPS MP4 video");
 
+  // Init stop button (pulled HIGH, press connects to GND)
+  pinMode(STOP_BTN_PIN, INPUT_PULLUP);
+
   // Init camera for H.264 video recording
   Camera.configVideoChannel(VIDEO_CHANNEL, configV);
   Camera.videoInit();
@@ -415,6 +422,27 @@ void setup() {
 
 void loop() {
   unsigned long now = millis();
+
+  // --- Stop button: finalize everything and halt ---
+  if (recording && digitalRead(STOP_BTN_PIN) == LOW) {
+    delay(50);  // debounce
+    if (digitalRead(STOP_BTN_PIN) == LOW) {
+      Serial.println("STOP button pressed — finalizing...");
+
+      // Flush any remaining sensor data
+      flushSamplesToSD();
+
+      // Finalize MP4 (writes moov atom)
+      mp4.end();
+      Serial.println("MP4 finalized.");
+
+      recording = false;
+      Serial.println("Recording stopped. Safe to remove power or SD card.");
+      while (1) {
+        delay(1000);  // halt — nothing left to do
+      }
+    }
+  }
 
   // --- Feed GPS (non-blocking) ---
   while (Serial1.available()) {
