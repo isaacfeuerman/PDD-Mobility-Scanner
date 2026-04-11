@@ -1,5 +1,7 @@
 #include <TinyGPS++.h>
 #include "VideoStream.h"
+#include "StreamIO.h"
+#include "MP4Recording.h"
 #include "AmebaFatFS.h"
 #include <Wire.h>
 #include <VL53L1X.h>
@@ -7,11 +9,12 @@
 // GPS
 TinyGPSPlus gps;
 
-// Camera
-#define CHANNEL 2
-VideoSetting config(VIDEO_FHD, CAM_FPS, VIDEO_JPEG, 1);
-uint32_t img_addr = 0;
-uint32_t img_len = 0;
+// Video recording (H.264 → MP4 on SD)
+#define VIDEO_CHANNEL 0
+VideoSetting configV(VIDEO_FHD, 1, VIDEO_H264, 0);  // 1 FPS H.264
+MP4Recording mp4;
+StreamIO videoStreamer(1, 1);  // camera → MP4 pipeline
+uint32_t recStartMs = 0;
 
 // SD card
 AmebaFatFS fs;
@@ -69,12 +72,9 @@ uint32_t imuFailCount = 0;
 // Timing
 unsigned long lastSample = 0;
 unsigned long lastWaypoint = 0;
-unsigned long lastFrame = 0;
 const unsigned long sampleInterval = 40;     // 40ms = 25Hz
 const unsigned long waypointInterval = 5000; // 5 seconds
-const unsigned long frameInterval = 1000;    // 1000ms = 1 FPS video
 int waypoint = 0;
-uint32_t frameCount = 0;
 
 // GPS state
 bool hasFix = false;
@@ -311,13 +311,12 @@ void setup() {
   Serial.begin(115200);
   delay(3000);
   Serial1.begin(9600);
-  Serial.println("Trail Scanner v4 — 25Hz single CSV, RAM buffered, ToF, 1FPS video");
+  Serial.println("Trail Scanner v4 — 25Hz CSV, RAM buffered, ToF, 1FPS MP4 video");
 
-  // Init camera
-  Camera.configVideoChannel(CHANNEL, config);
+  // Init camera for H.264 video recording
+  Camera.configVideoChannel(VIDEO_CHANNEL, configV);
   Camera.videoInit();
-  Camera.channelBegin(CHANNEL);
-  Serial.println("Camera ready.");
+  Serial.println("Camera initialized.");
 
   // Init I2C (shared by BNO055 and VL53L1X)
   Wire.begin();
@@ -354,8 +353,7 @@ void setup() {
 
   // Clean slate
   fs.remove("trail_data.csv");
-  fs.remove("frame_log.csv");
-  fs.mkdir("vid");
+  fs.remove("video_sync.csv");
 
   // Write CSV header
   File f = fs.open(String("trail_data.csv"));
@@ -375,12 +373,34 @@ void setup() {
     Serial.println("Wrote trail_data.csv header.");
   }
 
-  // Write frame log header (maps video frames to sensor timestamps)
-  File fl = fs.open(String("frame_log.csv"));
-  if (fl) {
-    fl.println("frame,ms,utc,size_bytes");
-    fl.close();
-    Serial.println("Wrote frame_log.csv header.");
+  // Start MP4 recording pipeline
+  mp4.configVideo(configV);
+  mp4.setRecordingFileName("trail_video");
+  mp4.setRecordingDuration(0);
+
+  videoStreamer.registerInput(Camera.getStream(VIDEO_CHANNEL));
+  videoStreamer.registerOutput(mp4);
+  if (videoStreamer.begin() != 0) {
+    Serial.println("ERROR: StreamIO link failed.");
+  }
+  Camera.channelBegin(VIDEO_CHANNEL);
+  mp4.begin();
+
+  // Record the exact millis() when recording started
+  recStartMs = millis();
+  Serial.print("MP4 recording started at ms=");
+  Serial.println(recStartMs);
+
+  // Write sync file so CSV timestamps can be correlated to video
+  // video_seconds = (trail_data.ms - rec_start_ms) / 1000.0
+  File vs = fs.open(String("video_sync.csv"));
+  if (vs) {
+    vs.println("rec_start_ms,fps");
+    char syncRow[32];
+    sprintf(syncRow, "%lu,1", recStartMs);
+    vs.println(syncRow);
+    vs.close();
+    Serial.println("Wrote video_sync.csv.");
   }
 
   waypoint = 0;
@@ -391,7 +411,6 @@ void setup() {
   Serial.println("Waiting for GPS fix...");
   lastSample = millis();
   lastWaypoint = millis();
-  lastFrame = millis();
 }
 
 void loop() {
@@ -471,44 +490,6 @@ void loop() {
     }
   }
 
-  // --- 1 FPS video frame capture ---
-  if (now - lastFrame >= frameInterval) {
-    lastFrame = now;
-
-    Camera.getImage(CHANNEL, &img_addr, &img_len);
-
-    if (img_len > 0) {
-      char framePath[40];
-      sprintf(framePath, "vid/frame_%06lu.jpg", frameCount);
-
-      File frameFile = fs.open(String(framePath));
-      if (frameFile) {
-        frameFile.write((uint8_t*)img_addr, img_len);
-        frameFile.close();
-      }
-
-      // Log frame timestamp to frame_log.csv
-      File fl = fs.open(String("frame_log.csv"));
-      if (fl) {
-        fl.seek(fl.size());
-        char logRow[80];
-        if (hasFix) {
-          char ts[32];
-          sprintf(ts, "%04d-%02d-%02dT%02d:%02d:%02d.%02d",
-            gpsYear, gpsMonth, gpsDay,
-            gpsHour, gpsMinute, gpsSecond, gpsCentisecond);
-          sprintf(logRow, "%lu,%lu,%s,%lu", frameCount, now, ts, img_len);
-        } else {
-          sprintf(logRow, "%lu,%lu,,%lu", frameCount, now, img_len);
-        }
-        fl.println(logRow);
-        fl.close();
-      }
-
-      frameCount++;
-    }
-  }
-
   // --- Waypoint: flush sensor buffer to SD ---
   if (now - lastWaypoint >= waypointInterval) {
 
@@ -525,12 +506,13 @@ void loop() {
     }
 
     // Serial status
+    unsigned long vidSec = (millis() - recStartMs) / 1000;
     Serial.println("=== Waypoint ===");
     Serial.print("WP: "); Serial.print(waypoint);
     Serial.print("  Samples: "); Serial.print(sampleCount);
     Serial.print("  Total: "); Serial.print(totalSamples);
     Serial.print("  Failures: "); Serial.println(imuFailCount);
-    Serial.print("  Frames: "); Serial.println(frameCount);
+    Serial.print("Video: "); Serial.print(vidSec); Serial.println("s");
     Serial.print("Lat: "); Serial.print(gpsLat, 6);
     Serial.print("  Lng: "); Serial.println(gpsLng, 6);
     Serial.print("Sats: "); Serial.print(gpsSats);
