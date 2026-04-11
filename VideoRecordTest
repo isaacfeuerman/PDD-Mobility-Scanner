@@ -9,17 +9,12 @@ VideoSetting config(CHANNEL);
 MP4Recording mp4;
 StreamIO videoStreamer(1, 1);
 
-// Stop button (BOOT button on AMB82 Mini)
-#define STOP_BTN_PIN 1
 bool recording = false;
 
 void setup() {
   Serial.begin(115200);
   delay(3000);
   Serial.println("=== Video Record Test ===");
-
-  // Stop button
-  pinMode(STOP_BTN_PIN, INPUT_PULLUP);
 
   // Configure camera video channel
   Camera.configVideoChannel(CHANNEL, config);
@@ -47,7 +42,7 @@ void setup() {
   recording = true;
 
   delay(1000);
-  Serial.println("Recording started. Press BOOT button to stop.");
+  Serial.println("Recording started. Send any character in serial monitor to stop.");
   Camera.printInfo();
   mp4.printInfo();
 }
@@ -55,21 +50,19 @@ void setup() {
 void loop() {
   if (!recording) return;
 
-  // Check stop button
-  if (digitalRead(STOP_BTN_PIN) == LOW) {
-    delay(50);  // debounce
-    if (digitalRead(STOP_BTN_PIN) == LOW) {
-      Serial.println("STOP button pressed...");
+  // Check serial for stop command
+  if (Serial.available()) {
+    while (Serial.available()) Serial.read();  // clear buffer
 
-      mp4.end();
-      Serial.println("MP4 finalized.");
+    Serial.println("Stop command received...");
+    mp4.end();
+    Serial.println("MP4 finalized.");
 
-      recording = false;
-      Serial.println("Recording stopped. Safe to remove power or SD card.");
+    recording = false;
+    Serial.println("Recording stopped. Safe to remove power or SD card.");
 
-      while (1) {
-        delay(1000);
-      }
+    while (1) {
+      delay(1000);
     }
   }
 
