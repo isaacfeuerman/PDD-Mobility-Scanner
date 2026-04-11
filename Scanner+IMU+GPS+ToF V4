@@ -23,8 +23,8 @@ AmebaFatFS fs;
 VL53L1X tof;
 bool tofReady = false;
 
-// Stop button — press to finalize MP4 + CSV, then safe to remove power/card
-#define STOP_BTN_PIN 8
+// Stop button — uses the onboard BOOT button to finalize MP4 + CSV
+#define STOP_BTN_PIN 1
 bool recording = true;
 
 // BNO055 registers
