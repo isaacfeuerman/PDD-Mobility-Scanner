@@ -9,8 +9,8 @@ VideoSetting config(CHANNEL);
 MP4Recording mp4;
 StreamIO videoStreamer(1, 1);
 
-// Stop button — external button, S pin to pin 9, - pin to GND
-#define STOP_BTN_PIN 9
+// Stop button — external button, S pin to pin 19, - pin to GND
+#define STOP_BTN_PIN 19
 bool recording = false;
 
 void setup() {
