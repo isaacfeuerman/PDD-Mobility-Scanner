@@ -11,7 +11,7 @@ TinyGPSPlus gps;
 
 // Video recording (H.264 → MP4 on SD)
 #define VIDEO_CHANNEL 0
-VideoSetting configV(VIDEO_FHD, 1, VIDEO_H264, 0);  // 1 FPS H.264
+VideoSetting configV(VIDEO_FHD, 5, VIDEO_H264, 0);  // 5 FPS H.264
 MP4Recording mp4;
 StreamIO videoStreamer(1, 1);  // camera → MP4 pipeline
 uint32_t recStartMs = 0;
@@ -397,7 +397,7 @@ void setup() {
   if (vs) {
     vs.println("rec_start_ms,fps");
     char syncRow[32];
-    sprintf(syncRow, "%lu,1", recStartMs);
+    sprintf(syncRow, "%lu,5", recStartMs);
     vs.println(syncRow);
     vs.close();
     Serial.println("Wrote video_sync.csv.");
