@@ -237,6 +237,33 @@ export default function App() {
     setShowSessions(true);
   }, []);
 
+  // ── Clear all sessions ──
+
+  const clearSessions = useCallback(() => {
+    Alert.alert(
+      'Delete All Sessions',
+      'This will permanently delete all recorded videos and CSV files.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete All',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await FileSystem.deleteAsync(SESSION_ROOT, { idempotent: true });
+              await ensureSessionRoot();
+              sessionNumRef.current = 0;
+              setSessionNum(0);
+              setSessions([]);
+            } catch (e) {
+              Alert.alert('Error', e.message);
+            }
+          },
+        },
+      ]
+    );
+  }, []);
+
   // ── Format time ──
 
   const formatTime = (sec) => {
@@ -326,9 +353,14 @@ export default function App() {
         <SafeAreaView style={styles.modalContainer}>
           <View style={styles.modalHeader}>
             <Text style={styles.modalTitle}>Recorded Sessions</Text>
-            <TouchableOpacity onPress={() => setShowSessions(false)}>
-              <Text style={styles.modalClose}>Done</Text>
-            </TouchableOpacity>
+            <View style={{ flexDirection: 'row', gap: 16 }}>
+              <TouchableOpacity onPress={clearSessions}>
+                <Text style={styles.modalDelete}>Clear All</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => setShowSessions(false)}>
+                <Text style={styles.modalClose}>Done</Text>
+              </TouchableOpacity>
+            </View>
           </View>
           <FlatList
             data={sessions}
@@ -489,6 +521,11 @@ const styles = StyleSheet.create({
   },
   modalClose: {
     color: '#2196F3',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  modalDelete: {
+    color: '#f44',
     fontSize: 16,
     fontWeight: '600',
   },
