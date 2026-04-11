@@ -51,8 +51,8 @@ export default function App() {
   const locationSub = useRef(null);
   const timerRef = useRef(null);
   const recStartMsRef = useRef(0);
-  const csvPathRef = useRef('');
-  const csvBufferRef = useRef('');
+  const csvRowsRef = useRef([]);   // buffered in memory, written on stop
+  const sessionDirRef = useRef('');
   const sessionNumRef = useRef(0);
 
   // ── Request permissions on mount ──
@@ -88,19 +88,14 @@ export default function App() {
     const num = sessionNumRef.current;
     const dir = sessionDir(num);
     await FileSystem.makeDirectoryAsync(dir, { intermediates: true });
+    sessionDirRef.current = dir;
 
     // Record start time (Unix epoch ms)
     const recStartMs = Date.now();
     recStartMsRef.current = recStartMs;
+    csvRowsRef.current = [];
 
-    // Create CSV with header
-    const csvPath = dir + 'trail_data.csv';
-    csvPathRef.current = csvPath;
-    const header = `# rec_start_ms=${recStartMs}\nms,utc,lat,lng,alt,speed,hdg,sats,hdop\n`;
-    await FileSystem.writeAsStringAsync(csvPath, header);
-    csvBufferRef.current = '';
-
-    // Start GPS logging (~1Hz)
+    // Start GPS logging (~1Hz) — rows buffered in memory, written on stop
     locationSub.current = await Location.watchPositionAsync(
       {
         accuracy: Location.Accuracy.BestForNavigation,
@@ -115,35 +110,19 @@ export default function App() {
         const hdg = heading != null && heading >= 0 ? heading : 0;
         const alt = altitude != null ? altitude : 0;
 
-        // Buffer CSV row (flush periodically)
-        csvBufferRef.current += `${ms},${utc},${latitude},${longitude},${alt},${spd},${hdg},,\n`;
+        csvRowsRef.current.push(`${ms},${utc},${latitude},${longitude},${alt},${spd},${hdg},,`);
 
         setHasFix(true);
         setCoords({ lat: latitude, lng: longitude });
       }
     );
 
-    // Flush CSV buffer every 3 seconds
-    const flushCSV = setInterval(async () => {
-      if (csvBufferRef.current.length > 0) {
-        const data = csvBufferRef.current;
-        csvBufferRef.current = '';
-        try {
-          const existing = await FileSystem.readAsStringAsync(csvPathRef.current);
-          await FileSystem.writeAsStringAsync(csvPathRef.current, existing + data);
-        } catch (e) {
-          // File might not exist yet, ignore
-        }
-      }
-    }, 3000);
-    timerRef.current = { flushInterval: flushCSV, startTime: Date.now() };
-
     // Start elapsed counter
     setElapsed(0);
     const elapsedInterval = setInterval(() => {
       setElapsed((prev) => prev + 1);
     }, 1000);
-    timerRef.current.elapsedInterval = elapsedInterval;
+    timerRef.current = { elapsedInterval };
 
     // Start video recording
     setIsRecording(true);
@@ -178,54 +157,44 @@ export default function App() {
 
     // Stop timers
     if (timerRef.current) {
-      clearInterval(timerRef.current.flushInterval);
       clearInterval(timerRef.current.elapsedInterval);
     }
 
-    // Final CSV flush
-    if (csvBufferRef.current.length > 0) {
-      try {
-        const existing = await FileSystem.readAsStringAsync(csvPathRef.current);
-        await FileSystem.writeAsStringAsync(csvPathRef.current, existing + csvBufferRef.current);
-        csvBufferRef.current = '';
-      } catch (e) {
-        // ignore
-      }
-    }
+    // Write CSV in one shot (header + all buffered rows)
+    const dir = sessionDirRef.current;
+    const csvPath = dir + 'trail_data.csv';
+    const header = `# rec_start_ms=${recStartMsRef.current}\nms,utc,lat,lng,alt,speed,hdg,sats,hdop`;
+    const csvContent = header + '\n' + csvRowsRef.current.join('\n') + '\n';
+    await FileSystem.writeAsStringAsync(csvPath, csvContent);
+    csvRowsRef.current = [];
 
     setIsRecording(false);
     setHasFix(false);
 
     // Increment session
-    const nextNum = sessionNumRef.current + 1;
-    sessionNumRef.current = nextNum;
-    setSessionNum(nextNum);
+    const savedNum = sessionNumRef.current;
+    sessionNumRef.current = savedNum + 1;
+    setSessionNum(savedNum + 1);
 
     // Offer to share
-    const dir = sessionDir(sessionNumRef.current - 1);
     const videoPath = dir + 'trail_video.mp4';
-    const csvPath = dir + 'trail_data.csv';
-
     const videoExists = (await FileSystem.getInfoAsync(videoPath)).exists;
-    const csvExists = (await FileSystem.getInfoAsync(csvPath)).exists;
 
-    if (videoExists || csvExists) {
-      Alert.alert(
-        'Session Saved',
-        `Session ${sessionNumRef.current - 1} recorded.`,
-        [
-          { text: 'OK' },
-          {
-            text: 'Share CSV',
-            onPress: () => csvExists && Sharing.shareAsync(csvPath),
-          },
-          {
-            text: 'Share Video',
-            onPress: () => videoExists && Sharing.shareAsync(videoPath),
-          },
-        ]
-      );
-    }
+    Alert.alert(
+      'Session Saved',
+      `Session ${savedNum} recorded.`,
+      [
+        { text: 'OK' },
+        {
+          text: 'Share CSV',
+          onPress: () => Sharing.shareAsync(csvPath),
+        },
+        ...(videoExists ? [{
+          text: 'Share Video',
+          onPress: () => Sharing.shareAsync(videoPath),
+        }] : []),
+      ]
+    );
   }, []);
 
   // ── Toggle ──
