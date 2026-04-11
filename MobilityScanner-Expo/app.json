@@ -1,0 +1,36 @@
+{
+  "expo": {
+    "name": "MobilityScanner",
+    "slug": "mobility-scanner",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": null,
+    "userInterfaceStyle": "dark",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.pdd.mobilityscanner",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Records video of trail conditions for accessibility analysis.",
+        "NSMicrophoneUsageDescription": "Required for video recording.",
+        "NSLocationWhenInUseUsageDescription": "Logs GPS coordinates alongside video to map detected objects."
+      }
+    },
+    "plugins": [
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Records video of trail conditions for accessibility analysis.",
+          "microphonePermission": "Required for video recording.",
+          "recordAudioAndroid": false
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Logs GPS coordinates alongside video to map detected objects."
+        }
+      ]
+    ]
+  }
+}
