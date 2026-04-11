@@ -11,7 +11,7 @@ TinyGPSPlus gps;
 
 // Video recording (H.264 → MP4 on SD)
 #define VIDEO_CHANNEL 0
-VideoSetting configV(VIDEO_FHD, 5, VIDEO_H264, 0);  // 5 FPS H.264
+VideoSetting configV(VIDEO_FHD, 1, VIDEO_H264, 0);  // 1 FPS H.264
 MP4Recording mp4;
 StreamIO videoStreamer(1, 1);  // camera → MP4 pipeline
 uint32_t recStartMs = 0;
@@ -23,8 +23,8 @@ AmebaFatFS fs;
 VL53L1X tof;
 bool tofReady = false;
 
-// Stop button — uses the onboard BOOT button to finalize MP4 + CSV
-#define STOP_BTN_PIN 1
+// Stop button — external button, S pin to pin 19, - pin to GND
+#define STOP_BTN_PIN 19
 bool recording = true;
 
 // BNO055 registers
@@ -314,7 +314,7 @@ void setup() {
   Serial.begin(115200);
   delay(3000);
   Serial1.begin(9600);
-  Serial.println("Trail Scanner v4 — 25Hz CSV, RAM buffered, ToF, 5FPS MP4 video");
+  Serial.println("Trail Scanner v4 — 25Hz CSV, RAM buffered, ToF, 1FPS MP4 video");
 
   // Init stop button (pulled HIGH, press connects to GND)
   pinMode(STOP_BTN_PIN, INPUT_PULLUP);
@@ -381,8 +381,10 @@ void setup() {
 
   // Start MP4 recording pipeline
   mp4.configVideo(configV);
-  mp4.setRecordingFileName("trail_video");
   mp4.setRecordingDuration(3600);  // 1 hour max
+  mp4.setRecordingFileCount(1);
+  mp4.setRecordingFileName("trail_video");
+  mp4.setRecordingDataType(STORAGE_VIDEO);
 
   videoStreamer.registerInput(Camera.getStream(VIDEO_CHANNEL));
   videoStreamer.registerOutput(mp4);
@@ -403,7 +405,7 @@ void setup() {
   if (vs) {
     vs.println("rec_start_ms,fps");
     char syncRow[32];
-    sprintf(syncRow, "%lu,5", recStartMs);
+    sprintf(syncRow, "%lu,1", recStartMs);
     vs.println(syncRow);
     vs.close();
     Serial.println("Wrote video_sync.csv.");
