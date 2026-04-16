@@ -1,0 +1,136 @@
+#include <Wire.h>
+
+// BNO055 registers
+const uint8_t BNO055_ADDR    = 0x28;
+const uint8_t BNO055_ADDR_ALT = 0x29;
+const uint8_t BNO055_CHIP_ID = 0x00;
+
+void setup() {
+  Serial.begin(115200);
+  delay(3000);
+  Serial.println("=== BNO055 Troubleshooter ===");
+  Serial.println();
+
+  Wire.begin();
+  delay(100);
+
+  // Step 1: Scan entire I2C bus
+  Serial.println("--- I2C Bus Scan ---");
+  int found = 0;
+  for (uint8_t addr = 1; addr < 127; addr++) {
+    Wire.beginTransmission(addr);
+    int err = Wire.endTransmission();
+    if (err == 0) {
+      Serial.print("  Device found at 0x");
+      if (addr < 16) Serial.print("0");
+      Serial.print(addr, HEX);
+      if (addr == BNO055_ADDR) Serial.print("  <-- BNO055 (ADR low)");
+      if (addr == BNO055_ADDR_ALT) Serial.print("  <-- BNO055 (ADR high)");
+      Serial.println();
+      found++;
+    }
+  }
+  if (found == 0) {
+    Serial.println("  NO devices found!");
+    Serial.println();
+    Serial.println("Check wiring:");
+    Serial.println("  SDA -> PA26");
+    Serial.println("  SCL -> PA25");
+    Serial.println("  VIN -> 3.3V");
+    Serial.println("  GND -> GND");
+    Serial.println();
+    Serial.println("Also check:");
+    Serial.println("  - Is the board powered? (LED on?)");
+    Serial.println("  - Are SDA/SCL swapped?");
+    Serial.println("  - Loose jumper wires?");
+    Serial.println("  - Pull-up resistors present? (most breakouts have them)");
+  } else {
+    Serial.print(found);
+    Serial.println(" device(s) found on I2C bus.");
+  }
+  Serial.println();
+
+  // Step 2: Try reading BNO055 chip ID at both addresses
+  Serial.println("--- BNO055 Chip ID Check ---");
+  uint8_t addrs[] = {BNO055_ADDR, BNO055_ADDR_ALT};
+  for (int i = 0; i < 2; i++) {
+    Wire.beginTransmission(addrs[i]);
+    Wire.write(BNO055_CHIP_ID);
+    int err = Wire.endTransmission();
+    if (err == 0) {
+      Wire.requestFrom(addrs[i], (uint8_t)1);
+      if (Wire.available()) {
+        uint8_t id = Wire.read();
+        Serial.print("  0x");
+        Serial.print(addrs[i], HEX);
+        Serial.print(" -> Chip ID: 0x");
+        Serial.print(id, HEX);
+        if (id == 0xA0) {
+          Serial.println("  ✓ BNO055 confirmed!");
+        } else {
+          Serial.println("  ✗ Not a BNO055 (expected 0xA0)");
+        }
+      }
+    } else {
+      Serial.print("  0x");
+      Serial.print(addrs[i], HEX);
+      Serial.print(" -> No response (error ");
+      Serial.print(err);
+      Serial.println(")");
+    }
+  }
+  Serial.println();
+
+  // Step 3: If BNO055 found, read status registers
+  for (int i = 0; i < 2; i++) {
+    Wire.beginTransmission(addrs[i]);
+    Wire.write(BNO055_CHIP_ID);
+    if (Wire.endTransmission() != 0) continue;
+    Wire.requestFrom(addrs[i], (uint8_t)1);
+    if (!Wire.available()) continue;
+    if (Wire.read() != 0xA0) continue;
+
+    Serial.println("--- BNO055 Status ---");
+    uint8_t regs[] = {0x01, 0x02, 0x03, 0x39, 0x3A, 0x3D, 0x35};
+    const char* names[] = {"ACC_ID", "MAG_ID", "GYR_ID", "SYS_STATUS", "SYS_ERR", "OPR_MODE", "CALIB_STAT"};
+    for (int r = 0; r < 7; r++) {
+      Wire.beginTransmission(addrs[i]);
+      Wire.write(regs[r]);
+      Wire.endTransmission();
+      Wire.requestFrom(addrs[i], (uint8_t)1);
+      if (Wire.available()) {
+        uint8_t val = Wire.read();
+        Serial.print("  ");
+        Serial.print(names[r]);
+        Serial.print(": 0x");
+        Serial.println(val, HEX);
+      }
+    }
+    Serial.println();
+    Serial.println("Expected values:");
+    Serial.println("  ACC_ID: 0xFB, MAG_ID: 0x32, GYR_ID: 0x0F");
+    Serial.println("  OPR_MODE: 0x0C (NDOF) or 0x00 (CONFIG)");
+    Serial.println("  CALIB_STAT: higher = better (0xFF = fully calibrated)");
+    break;
+  }
+
+  Serial.println();
+  Serial.println("=== Done. Check results above. ===");
+}
+
+void loop() {
+  // Repeat scan every 10 seconds in case board is reconnected
+  delay(10000);
+  Serial.println();
+  Serial.println("--- Re-scanning I2C bus ---");
+  int found = 0;
+  for (uint8_t addr = 1; addr < 127; addr++) {
+    Wire.beginTransmission(addr);
+    if (Wire.endTransmission() == 0) {
+      Serial.print("  Found: 0x");
+      Serial.println(addr, HEX);
+      found++;
+    }
+  }
+  if (found == 0) Serial.println("  No devices found.");
+}
