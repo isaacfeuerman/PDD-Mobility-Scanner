@@ -1,5 +1,11 @@
 // ===========================================================================
-//  Scanner + IMU + GPS + ToF  —  V4 (single-press stop, 1 FPS H.264 MP4)
+//  Scanner + IMU + GPS + ToF  —  V6 (single-press stop, 1 FPS H.264 MP4)
+//
+//  What this sketch does
+//  ---------------------
+//    Records a 1 FPS H.264 MP4 to SD while logging a 25 Hz CSV of IMU
+//    (BNO055), ToF distance (VL53L1X), and GPS at every fix update.
+//    Press the stop button once to finalize the MP4 and flush the CSV.
 //
 //  AMB82-mini wiring
 //  -----------------
@@ -13,7 +19,50 @@
 //    GPS (TinyGPS++): on Serial1
 //    SD card: onboard slot
 //
-//  Press the stop button once to finalize the MP4 and flush the CSV.
+//  ---------------------------------------------------------------------------
+//  I2C on the AMB82-mini — gotchas we hit and how this sketch handles them
+//  ---------------------------------------------------------------------------
+//
+//  1) "Wall of devices" — a normal I2C scanner reports all 126 addresses.
+//     The Ameba Pro2 Wire driver does NOT reliably return NACKs from
+//     Wire.endTransmission(). So the classic scan loop
+//        for (addr = 1..127) { Wire.beginTransmission(addr);
+//                              if (Wire.endTransmission()==0) "found"; }
+//     prints every address as "present" and tells you nothing.
+//
+//     Fix used here: we don't scan. bno055_init() reads the BNO055
+//     CHIP_ID register (0x00) and checks the returned byte == 0xA0.
+//     Real BNO055 -> 0xA0. Wrong wiring / no chip -> 0x00, 0xFF, or
+//     no bytes at all. That is the only reliable presence test on this
+//     board. The same pattern is used for the VL53L1X via tof.init().
+//
+//  2) "BNO055 didn't connect" — almost always a wiring or pin issue.
+//     Wire.begin() with no arguments binds to the AMB82-mini default
+//     hardware I2C: SDA = pin 12, SCL = pin 13. The chip MUST be on
+//     those two pins. If the chip ID probe prints 0x00 or 0xFF, swap
+//     the SDA/SCL leads or move them onto pins 12/13.
+//
+//  3) Adafruit_BNO055 won't build on this core — it pulls in
+//     portOutputRegister / portInputRegister which the Realtek Ameba
+//     toolchain doesn't provide. We avoid that whole stack and use
+//     bare Wire register reads (bno055_writeReg / readReg / readBytes
+//     below). The companion BNO055_Ameba_Test sketch is the minimal
+//     "is the chip even there?" tool to confirm wiring before running
+//     this full sketch.
+//
+//  4) Flaky NDOF transition — once in a while writing OPR_MODE = NDOF
+//     reads back as something else on the next attempt. bno055_init()
+//     re-tries up to 5 times with 200 ms / 500 ms waits before giving
+//     up, instead of trusting one write.
+//
+//  5) Defensive reads — bno055_readBytes() returns false on any
+//     endTransmission error and on missing bytes, so a transient I2C
+//     glitch shows up as an incremented imuFailCount, not as a row of
+//     garbage values in the CSV. The same logic discards a CALIB_STAT
+//     read of 0xFF (bus floating high).
+//
+//  Bottom line: if "BNO055 not detected" prints at boot, run the
+//  BNO055_Ameba_Test sketch first to confirm wiring, then come back.
 // ===========================================================================
 
 #include <TinyGPS++.h>
@@ -45,23 +94,28 @@ bool tofReady = false;
 #define STOP_BTN_PIN 19
 bool recording = true;
 
-// BNO055 registers
-const uint8_t BNO055_ADDR        = 0x28;
-const uint8_t BNO055_CHIP_ID     = 0x00;
-const uint8_t BNO055_OPR_MODE    = 0x3D;
-const uint8_t BNO055_SYS_TRIGGER = 0x3F;
-const uint8_t BNO055_SYS_STATUS  = 0x39;
-const uint8_t BNO055_SYS_ERR     = 0x3A;
-const uint8_t BNO055_CALIB_STAT  = 0x35;
+// BNO055 registers (from the Bosch BNO055 datasheet, Page 0).
+// We talk to the chip directly because the Adafruit_BNO055 library
+// does not compile on the AMB82-mini Realtek core (see header notes).
+const uint8_t BNO055_ADDR        = 0x28;  // I2C slave address (ADR pin low)
+const uint8_t BNO055_CHIP_ID     = 0x00;  // Always reads 0xA0 — used as presence probe
+const uint8_t BNO055_OPR_MODE    = 0x3D;  // Operating mode (CONFIG / NDOF / etc.)
+const uint8_t BNO055_SYS_TRIGGER = 0x3F;  // Bit 5 = trigger soft reset
+const uint8_t BNO055_SYS_STATUS  = 0x39;  // Post-init system state (0x05 = sensor fusion running)
+const uint8_t BNO055_SYS_ERR     = 0x3A;  // 0 = no error
+const uint8_t BNO055_CALIB_STAT  = 0x35;  // Packed cal: [sys|gyro|accel|mag] 2 bits each, 0..3
 const uint8_t BNO055_MAG_X       = 0x0E;  // Mag + Gyro: 12 bytes (0x0E-0x19)
 const uint8_t BNO055_QUAT_W      = 0x20;  // Quat + LinAccel + Gravity: 20 bytes (0x20-0x33)
-const uint8_t BNO055_MODE_NDOF   = 0x0C;
-const uint8_t BNO055_MODE_CONFIG = 0x00;
+const uint8_t BNO055_MODE_NDOF   = 0x0C;  // 9-DoF fusion w/ magnetometer (what we use)
+const uint8_t BNO055_MODE_CONFIG = 0x00;  // Required mode for any config write
 
 bool imuReady = false;
 
 // --- Sample struct ---
-
+//
+// One Sample = one 25 Hz logging row. We collect samples into a RAM
+// buffer (sampleBuf) and only write to SD every 5 s in flushSamplesToSD()
+// — writing per-sample would block the loop and miss IMU samples.
 struct Sample {
   uint32_t ms;
   // IMU
@@ -108,6 +162,11 @@ uint8_t gpsMonth = 0, gpsDay = 0, gpsHour = 0, gpsMinute = 0, gpsSecond = 0, gps
 
 
 // --- BNO055 helper functions ---
+//
+// These are bare Wire transactions; no Adafruit / no BusIO. The 10 ms
+// delay after a write is the spec-recommended settle time before the
+// next bus access, and prevents the chip from NACKing back-to-back
+// writes during mode changes.
 
 void bno055_writeReg(uint8_t reg, uint8_t val) {
   Wire.beginTransmission(BNO055_ADDR);
@@ -117,6 +176,9 @@ void bno055_writeReg(uint8_t reg, uint8_t val) {
   delay(10);
 }
 
+// Single-register read. Returns 0xFF if no byte came back — callers
+// treat 0xFF as "bad read" (CALIB_STAT can never legitimately be 0xFF,
+// and CHIP_ID must be 0xA0, so 0xFF is unambiguously a failure).
 uint8_t bno055_readReg(uint8_t reg) {
   Wire.beginTransmission(BNO055_ADDR);
   Wire.write(reg);
@@ -125,6 +187,10 @@ uint8_t bno055_readReg(uint8_t reg) {
   return Wire.available() ? Wire.read() : 0xFF;
 }
 
+// Multi-byte read starting at reg. Returns false if the chip NACKs
+// the address phase or doesn't supply enough bytes. Any failure here
+// propagates up to readSensors() and increments imuFailCount in the
+// main loop, so glitches show up as missing rows, not corrupt data.
 bool bno055_readBytes(uint8_t reg, uint8_t *buf, uint8_t len) {
   Wire.beginTransmission(BNO055_ADDR);
   Wire.write(reg);
@@ -138,6 +204,21 @@ bool bno055_readBytes(uint8_t reg, uint8_t *buf, uint8_t len) {
   return true;
 }
 
+// BNO055 boot sequence — same idea regardless of board, but the
+// retries here are what make it work on the AMB82-mini specifically.
+//
+//   Step 1: probe CHIP_ID. If we don't get 0xA0 the chip isn't on the
+//           bus — bail out and let the rest of the sketch run without
+//           IMU data. (Common cause: SDA/SCL on wrong pins.)
+//   Step 2: switch to CONFIG mode (required before any reset/config).
+//   Step 3: trigger a soft reset (SYS_TRIGGER bit 5). Spec says ~650 ms
+//           to come back; we wait 1000 ms to be safe.
+//   Step 4: poll CHIP_ID for up to 3 s waiting for the chip to wake.
+//   Step 5: write OPR_MODE = NDOF and read it back. Sometimes the
+//           write doesn't "stick" on the first try over Ameba I2C, so
+//           we retry up to 5 times.
+//   Step 6: print SYS_STATUS / SYS_ERR for diagnostics. Healthy boot:
+//           SYS_STATUS = 0x05 (fusion running), SYS_ERR = 0x00.
 bool bno055_init() {
   uint8_t id = bno055_readReg(BNO055_CHIP_ID);
   Serial.print("BNO055 chip ID: 0x");
@@ -150,6 +231,7 @@ bool bno055_init() {
   bno055_writeReg(BNO055_SYS_TRIGGER, 0x20);
   delay(1000);
 
+  // Wait for the chip to come back after reset (CHIP_ID readable again).
   for (int i = 0; i < 30; i++) {
     delay(100);
     id = bno055_readReg(BNO055_CHIP_ID);
@@ -159,6 +241,7 @@ bool bno055_init() {
 
   delay(500);
 
+  // Retry NDOF entry — Ameba I2C occasionally drops the first write.
   uint8_t mode = 0;
   for (int attempt = 0; attempt < 5; attempt++) {
     bno055_writeReg(BNO055_OPR_MODE, BNO055_MODE_NDOF);
@@ -175,6 +258,7 @@ bool bno055_init() {
     return false;
   }
 
+  // Diagnostics — these print to Serial so you can confirm a healthy boot.
   delay(200);
   uint8_t status = bno055_readReg(BNO055_SYS_STATUS);
   uint8_t err = bno055_readReg(BNO055_SYS_ERR);
@@ -186,7 +270,20 @@ bool bno055_init() {
 
 
 // --- Sensor read: individual 6-byte reads (proven pattern from v2) ---
-
+//
+// The BNO055 lets you read all 12 outputs (mag, gyro, quat, linaccel,
+// gravity, calib) in one big burst, but on the Ameba Wire driver that
+// large burst is unreliable — we'd see corrupt rows. Splitting into
+// five small reads with 3 ms gaps between them is rock-solid in
+// testing, at the cost of ~15 ms per sample (still well under the
+// 40 ms / 25 Hz budget).
+//
+// Scaling factors below come straight from the BNO055 datasheet:
+//   mag:      LSB / 16     -> microtesla
+//   gyro:     LSB / 900    -> rad/s   (in NDOF radians-output mode)
+//   quat:     LSB / 16384  -> unit quaternion component
+//   linaccel: LSB / 100    -> m/s^2
+//   gravity:  LSB / 100    -> m/s^2
 bool readSensors(Sample &s) {
   uint8_t buf[8];  // Reused for each read
 
@@ -244,7 +341,12 @@ bool readSensors(Sample &s) {
 
 
 // --- Flush sample buffer to SD ---
-
+//
+// Appends every queued Sample as a CSV row to trail_data.csv. Rows
+// without a fresh GPS fix leave the lat/lng/etc. columns empty; rows
+// without a ToF reading leave tof_mm and tof_status empty. ms is the
+// AMB82-mini millis() at sample time — pair it with rec_start_ms in
+// video_sync.csv to recover the matching video frame.
 void flushSamplesToSD() {
   if (sampleCount == 0) return;
 
@@ -342,7 +444,12 @@ void setup() {
   Camera.videoInit();
   Serial.println("Camera initialized.");
 
-  // Init I2C (shared by BNO055 and VL53L1X)
+  // Init I2C (shared by BNO055 @ 0x28 and VL53L1X @ 0x29).
+  // No-arg Wire.begin() binds to the AMB82-mini hardware I2C
+  // defaults: SDA = pin 12, SCL = pin 13. Both sensors must be on
+  // those two pins. Do NOT pass pin numbers here — the Ameba core's
+  // pin-mapping override has been buggy in our experience, and the
+  // default mapping is what actually works.
   Wire.begin();
   delay(100);
 
@@ -356,7 +463,11 @@ void setup() {
     Serial.println("WARNING: BNO055 not detected — continuing without IMU.");
   }
 
-  // Init ToF sensor (VL53L1X at default address 0x29)
+  // Init ToF sensor (VL53L1X at default address 0x29). Like the
+  // BNO055, tof.init() probes the chip's ID register internally —
+  // it's the only reliable presence test on this board.
+  // Long mode reaches ~4 m outdoors. Timing budget 33 ms < the 40 ms
+  // sample period, so each sample can pick up a fresh measurement.
   tof.setTimeout(500);
   if (tof.init()) {
     tof.setDistanceMode(VL53L1X::Long);
@@ -397,7 +508,13 @@ void setup() {
     Serial.println("Wrote trail_data.csv header.");
   }
 
-  // Start MP4 recording pipeline
+  // Start MP4 recording pipeline.
+  //   configVideo: must match what we passed to Camera (1 FPS H.264).
+  //   setRecordingFileCount(1): produce ONE file (no segmenting).
+  //   setRecordingDataType(STORAGE_VIDEO): video-only, no audio track.
+  // The StreamIO object is the glue that pipes encoded frames from the
+  // camera channel into the MP4 muxer. videoStreamer.begin() returns
+  // 0 on success.
   mp4.configVideo(configV);
   mp4.setRecordingDuration(3600);  // 1 hour max
   mp4.setRecordingFileCount(1);
@@ -442,6 +559,11 @@ void loop() {
   unsigned long now = millis();
 
   // --- Stop button: finalize everything and halt ---
+  // The pin sits HIGH (INPUT_PULLUP); a press shorts it to GND.
+  // 50 ms recheck is a software debounce — avoids false triggers on
+  // contact bounce. Once we stop, we flush the buffer, close the MP4
+  // (writes the moov atom so the video is playable), and busy-loop
+  // forever — the user can safely cut power or pull the SD card.
   if (recording && digitalRead(STOP_BTN_PIN) == LOW) {
     delay(50);  // debounce
     if (digitalRead(STOP_BTN_PIN) == LOW) {
@@ -463,6 +585,11 @@ void loop() {
   }
 
   // --- Feed GPS (non-blocking) ---
+  // TinyGPS++ parses NMEA one byte at a time. We drain whatever is
+  // in the UART buffer this loop tick — never block waiting for a
+  // sentence — then if a fresh location came through we cache the
+  // whole fix into our gps* globals. The next sensor sample will
+  // attach this fix to its row (one row, then we clear newGPSFix).
   while (Serial1.available()) {
     if (gps.encode(Serial1.read())) {
       if (gps.location.isUpdated()) {
@@ -489,6 +616,12 @@ void loop() {
   }
 
   // --- 25Hz sensor sample into RAM buffer ---
+  // Every 40 ms: read all BNO055 outputs, optionally read ToF, and
+  // attach a GPS fix if one arrived since the last sample. If
+  // readSensors() fails (any I2C glitch — see bno055_readBytes), we
+  // bump imuFailCount and skip this slot. MAX_SAMPLES is sized with
+  // headroom over the 5 s flush interval (125 expected, 140 capacity)
+  // so a slow flush never causes us to drop samples.
   if (imuReady && (now - lastSample >= sampleInterval)) {
     lastSample = now;
 
